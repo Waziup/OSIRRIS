@@ -43,9 +43,9 @@
 
 ////////////////////////////////////////////////////////////////////
 // Frequency band - do not change in SX127X_RadioSettings.h anymore
-//#define BAND868
+#define BAND868
 //#define BAND900
-#define BAND433
+//#define BAND433
 
 ////////////////////////////////////////////////////////////////////
 #define BOOT_START_MSG  "\nINTEL-IRRIS soil humidity sensor – 20/08/2022\n"
@@ -181,7 +181,7 @@ uint8_t node_addr=8;
 
 ///////////////////////////////////////////////////////////////////
 // CHANGE HERE THE TIME IN MINUTES BETWEEN 2 READING & TRANSMISSION
-unsigned int idlePeriodInMin = 1;
+unsigned int idlePeriodInMin = 10;
 unsigned int idlePeriodInSec = 0;
 ///////////////////////////////////////////////////////////////////
 
@@ -218,12 +218,12 @@ uint8_t my_appKey[4]={5, 6, 7, 8};
 //Watermark soil sensor device has a different address from the default address 26011DAA
 //26011DB1
 //if you need another address for tensiometer sensor device, use B1, B2, B3,..., BF
-unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xBC};
+unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xA1};
 #else
 //default device address for WaziGate configuration, mainly for SEN0308 capacitive soil sensor device
 //26011DAA
 //if you need another address for capacitive sensor device, use AA, AB, AC,..., AF
-unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xBF};
+unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xA1};
 #endif
 
 #else
@@ -468,12 +468,17 @@ uint32_t TXPacketCount=0;
 #ifdef MONITOR_BAT_VOLTAGE
 // https://github.com/Yveaux/arduino_vcc
 #include <Vcc.h>                     
-//Set to 1.0 for calibrate, be sure to transmit when not powered by USB      
+//Set to 1.0 for calibrate, be sure to transmit when not powered by USB  
 //then get reported Vcc for specific hardware    
 //const float VccCorrection = 3.3/3.3;
 //finally set VccCorrection to measured Vcc by multimeter divided by reported Vcc
 //Measure on real INTEL-IRRIS soil devices
-const float VccCorrection = 3.0/2.9;   
+//const float VccCorrection = 3.0/2.9;
+//For WaziAct 
+//const float VccCorrection = 3.875/3.03; //and 3,7V LIPO
+//const float VccCorrection = 6.43/4.61; //and 4x AA battery A1
+//const float VccCorrection = 6.48/5.07; //and 4x AA battery B1
+const float VccCorrection = 5.18/3.34; //and 4x AA battery B1
 //other measures on real INTEL-IRRIS soil devices
 //const float VccCorrection = 3.64/3.54; //with 3.6 lithium battery
 //const float VccCorrection = 3.24/3.18; //with 2 AA alkaline batteries  
@@ -485,7 +490,9 @@ Vcc vcc(VccCorrection);
 #ifndef VCC_LOW
 #ifdef WITH_WATERMARK
 //we could set to 2.65 which is approximately the threshold for the board to reboot
-#define VCC_LOW                 2.75
+//#define VCC_LOW                 2.75
+//for 4x AA battery: alkaline 1V is considered empty 
+#define VCC_LOW                 3.6
 #else
 //capacitive sensors can be impacted by low voltage, especially for very dry conditions
 #define VCC_LOW                 2.85
@@ -542,18 +549,18 @@ float last_vcc = 0.0;
 // this is for the Teensy36, Teensy35, Teensy31/32 & TeensyLC
 // need v6 of Snooze library
 #if defined __MK20DX256__ || defined __MKL26Z64__ || defined __MK64FX512__ || defined __MK66FX1M0__
-  #define LOW_POWER_PERIOD 60
+  #define LOW_POWER_PERIOD 20
   #include <Snooze.h>
   SnoozeTimer timer;
   SnoozeBlock sleep_config(timer);
 #elif defined ARDUINO_ESP8266_ESP01 || defined ARDUINO_ESP8266_NODEMCU || defined ESP8266
-  #define LOW_POWER_PERIOD 60
+  #define LOW_POWER_PERIOD 20
   //we will use the deepSleep feature, so no additional library
 #elif defined ARDUINO_ARCH_ASR650X
-  #define LOW_POWER_PERIOD 60
+  #define LOW_POWER_PERIOD 20
   static TimerEvent_t wakeUp;
 #else // for all other boards based on ATMega168, ATMega328P, ATMega32U4, ATMega2560, ATMega256RFR2, ATSAMD21G18A
-  #define LOW_POWER_PERIOD 8
+  #define LOW_POWER_PERIOD 20 //was 8
   // you need the LowPower library from RocketScream
   // https://github.com/rocketscream/Low-Power
   #include "LowPower.h"
