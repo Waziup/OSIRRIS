@@ -1,21 +1,33 @@
 {
     "tasks": [
         {
-            "type": "cppbuild",
-            "label": "C/C++: cl.exe build active file",
-            "command": "cl.exe",
-            "args": [
-                "/Zi",
-                "/EHsc",
-                "/nologo",
-                "/Fe${fileDirname}\\${fileBasenameNoExtension}.exe",
-                "${file}"
-            ],
-            "options": {
-                "cwd": "${fileDirname}"
+            "label": "Run tests",
+            "type": "shell",
+            "command": "./scripts/test.sh",
+            "windows": {
+                "command": ".\\scripts\\test.cmd"
             },
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "type": "cppbuild",
+            "label": "C/C++: g++.exe build active file",
+            "command": "g++",
+            "args": [
+                "-g",
+                "${file}",
+                "-g",
+                "${workspaceFolder}/src/xlpp.cpp",
+                "-o",
+                "${fileDirname}\\${fileBasenameNoExtension}.exe"
+            ],
+            "options": {},
             "problemMatcher": [
-                "$msCompile"
+                "$gcc"
             ],
             "group": {
                 "kind": "build",

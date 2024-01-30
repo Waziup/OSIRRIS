@@ -1,8 +1,9 @@
 /*
  *  INTEL_IRRIS soil humidity sensor platform
- *  extended version with AES and custom Carrier Sense features
+ *  support limited LoRaWAN with raw LoRa SX12XX (such as RFM9X, NiveRF, ...)
+ *  support RAK3172 for native LoRaWAN
  *  
- *  Copyright (C) 2016-2022 Congduc Pham, University of Pau, France
+ *  Copyright (C) 2016-2023 Congduc Pham, University of Pau, France
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,7 +19,9 @@
  *  along with the program.  If not, see <http://www.gnu.org/licenses/>.
  *
  *****************************************************************************
- * last update: August 20th, 2022 by C. Pham
+ * last update: Oct. 10th, 2023 by C. Pham
+ * 
+ * NEW: Support native LoRaWAN module RAK3172 with AT commands
  * 
  * NEW: LoRa communicain library moved from Libelium's lib to StuartProject's lib
  * https://github.com/StuartsProjects/SX12XX-LoRa
@@ -37,28 +40,37 @@
                          |___/                                   
 ********************************************************************/
 
+//indicate in this file the radio module: SX126X, SX127X, SX128X or RAK3172
+#include "RadioSettings.h"
+//indicate in this file the board: simple PCB v2, IRD PCB or WaziSense v2
+#include "BoardSettings.h"
+
 ////////////////////////////////////////////////////////////////////
-// sends data to INTEL-IRRIS WaziGate edge-gateway
+// sends data to Osirris WaziGate edge-gateway
 #define TO_WAZIGATE
 
 ////////////////////////////////////////////////////////////////////
-// Frequency band - do not change in SX127X_RadioSettings.h anymore
-#define BAND868
-//#define BAND900
-//#define BAND433
+// Frequency band - do not change in SX12XX_RadioSettings.h anymore
+// if using a native LoRaWAN module such as RAK3172, also select band in RadioSettings.h
+#define EU868
+//#define AU915 
+//#define EU433
+//#define AS923-2
+
+////////////////////////////
+//uncomment to use a customized frequency.
+//#define MY_FREQUENCY 868100000
+//#define MY_FREQUENCY 433170000
+//#define MY_FREQUENCY 916800000
 
 ////////////////////////////////////////////////////////////////////
-#define BOOT_START_MSG  "\nOsirris soil humidity sensor – 20/08/2022\n"
-
-////////////////////////////////////////////////////////////////////
-// Test device
-//#define TEST_DEVICE_RANDOM
+#define BOOT_START_MSG  "\nOsirris soil humidity sensor – Oct 10th, 2023\n"
 
 ////////////////////////////////////////////////////////////////////
 // uncomment to have a soil tensiometer watermark sensor
 #define WITH_WATERMARK
 // only for watermark sensors, not relevant for capacitive sensors
-double WM_REF_TEMPERATURE=28.0;
+#define WM_REF_TEMPERATURE 24.0
 
 ////////////////////////////////////////////////////////////////////
 // uncomment to force the watermark to have default device address for WaziGate
@@ -74,7 +86,13 @@ double WM_REF_TEMPERATURE=28.0;
 #define SOIL_TEMP_SENSOR
 // only for watermark sensors, not relevant for capacitive sensors
 #define LINK_SOIL_TEMP_TO_CENTIBAR
+// use SEN0308 capacitive calibration for low voltage
+#define SEN0308_CALIBRATION_LOW_VOLTAGE
+// send millivolt with SEN0308 capacitive
+//#define SEN0308_TRANSMIT_MILLIVOLT
 
+//uncomment for an onboard SI7021 sensor
+//#define SI7021_SENSOR
 ////////////////////////////////////////////////////////////////////
 // WAZISENSE and WAZIDEV v1.4 boards have
 //  - an embedded SI7021 sensor
@@ -89,7 +107,12 @@ double WM_REF_TEMPERATURE=28.0;
 //#define WAZIDEV14
 
 //can be uncommented for both WAZISENSE and WAZIDEV14
-//#define SI7021_SENSOR
+
+////////////////////////////////////////////////////////////////////
+// uncomment to have an additional decagon EC-5 sensor, ONLY ON IRD_PCB
+//#define SOIL_EC5_SENSOR
+// uncomment to have an additional CO2 sensor, ONLY ON IRD_PCB
+//#define CO2_SCD30_SENSOR
 
 //uncomment to use LPP format to send to WAZIGATE for instance
 //so uncomment LPP only with LORAWAN to WAZIGATE
@@ -127,7 +150,8 @@ double WM_REF_TEMPERATURE=28.0;
 #define LOW_POWER_HIBERNATE
 //#define SHOW_LOW_POWER_CYCLE //uncomment only for debugging and testing
 //monitor battery voltage without additional hardware: // https://github.com/Yveaux/arduino_vcc
-//if low voltage detected, then multiply by 2 the transmission time interval before measure & transmission
+//if low voltage detected, device will continue to measure and transmit normally 3 times
+//then, it will set transmission time interval to 4h
 #define MONITOR_BAT_VOLTAGE
 //enable transmission of bat voltage in (X)LPP messages
 #define TRANSMIT_VOLTAGE
@@ -136,10 +160,7 @@ double WM_REF_TEMPERATURE=28.0;
 //force normal measure and transmission even if low voltage detected
 //#define BYPASS_LOW_BAT
 ////////////////////////////
-//Use native LoRaWAN packet format to send to LoRaWAN gateway - beware it does not mean you device is a full LoRaWAN device
-#ifndef TO_WAZIGATE
-//#define LORAWAN
-#endif
+
 ////////////////////////////
 //Use LoRaWAN AES-like encryption
 //#define WITH_AES
@@ -152,10 +173,11 @@ double WM_REF_TEMPERATURE=28.0;
 ////////////////////////////
 //normal behavior is to invert IQ for RX, the normal behavior at gateway is also to invert its IQ setting, only valid with WITH_RCVW
 #define INVERTIQ_ON_RX
-////////////////////////////
-//uncomment to use a customized frequency. TTN plan includes 868.1/868.3/868.5/867.1/867.3/867.5/867.7/867.9 for LoRa
-//#define MY_FREQUENCY 868100000
-//#define MY_FREQUENCY 433170000
+
+////////////////////////////////////////////////////////////////////
+// Test generation of random values from device
+//#define TEST_DEVICE_RANDOM
+
 ////////////////////////////
 //when sending to a LoRaWAN gateway (e.g. running util_pkt_logger) but with no native LoRaWAN format, just to set the correct sync word
 //#define PUBLIC_SYNCWORD
@@ -218,12 +240,12 @@ uint8_t my_appKey[4]={5, 6, 7, 8};
 //Watermark soil sensor device has a different address from the default address 26011DAA
 //26011DB1
 //if you need another address for tensiometer sensor device, use B1, B2, B3,..., BF
-unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xD2};
+unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xD1};
 #else
 //default device address for WaziGate configuration, mainly for SEN0308 capacitive soil sensor device
 //26011DAA
 //if you need another address for capacitive sensor device, use AA, AB, AC,..., AF
-unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xD2};
+unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xD1};
 #endif
 
 #else
@@ -249,17 +271,11 @@ unsigned char DevAddr[4] = { 0x00, 0x00, 0x00, node_addr };
 //#define OLED
 //various predefined connection setups for OLED
 // GND, VCC, SCL, SDA
-//#define OLED_GND234
-//#define OLED_7GND654 //7 as GND
-//#define OLED_GND13_12_11
-
-//For WaziDev without SOLAR_PANEL_LEVEL
+//Suitable for WaziSense v2
+//#define OLED_GND5A5A4 //5 as VCC
+//for other boards – pin 4 is not available when LoRa RST is on pin 4
+//#define OLED_GND235 //suitable even with 1 capacitive or 1 tensiometer+temp sensor attached
 //#define OLED_9GND876 //9 as GND
-//For WaziDev with SOLAR_PANEL_LEVEL, cannot use D7
-//#define OLED_A3GNDA2_A1_A0 //A3 as GND
-
-//Suitable for WaziSense
-//#define OLED_GND579
 
 /********************************************************************
   ___                              _         
@@ -358,11 +374,11 @@ unsigned char DevAddr[4] = { 0x00, 0x00, 0x00, node_addr };
  |___|_| |_|\___|_|\__,_|\__,_|\___||___/
 ********************************************************************/                                         
 
+#ifdef WITH_SPI_COMMANDS
 #include <SPI.h>
 //this is the standard behaviour of library, use SPI Transaction switching
-#define USE_SPI_TRANSACTION  
-//indicate in this file the radio module: SX126X, SX127X or SX128X
-#include "RadioSettings.h"
+#define USE_SPI_TRANSACTION
+#endif
 
 #ifdef SX126X
 #include <SX126XLT.h>                                          
@@ -379,9 +395,10 @@ unsigned char DevAddr[4] = { 0x00, 0x00, 0x00, node_addr };
 #include "SX128X_RadioSettings.h"
 #endif       
 
+#include "TempInternal.h"
+
 // Include sensors
 #include "Sensor.h"
-#include "rawAnalog.h"
 #ifdef SI7021_SENSOR
 #include <Wire.h>
 #include "i2c_SI7021.h"
@@ -389,12 +406,19 @@ unsigned char DevAddr[4] = { 0x00, 0x00, 0x00, node_addr };
 #include "si7021_Humidity.h"
 #endif
 
+#ifdef WITH_WATERMARK
+#include "watermark.h"
+#else
+//#include "rawAnalog.h"
+#include "sen0308.h"
+#endif
+
 #ifdef SOIL_TEMP_SENSOR
 #include "DS18B20.h"
 #endif
 
-#ifdef WITH_WATERMARK
-#include "watermark.h"
+#ifdef CO2_SCD30_SENSOR
+#include "CO2_SCD30.h"
 #endif
 
 #ifdef USE_XLPP
@@ -405,9 +429,10 @@ unsigned char DevAddr[4] = { 0x00, 0x00, 0x00, node_addr };
 #include <CayenneLPP.h>
 #endif
 
+
 ///////////////////////////////////////////////////////////////////
 // ENCRYPTION CONFIGURATION AND KEYS FOR LORAWAN
-#ifdef LORAWAN
+#if defined LORAWAN && defined CUSTOM_LORAWAN
 #ifndef WITH_AES
 #define WITH_AES
 #endif
@@ -416,73 +441,48 @@ unsigned char DevAddr[4] = { 0x00, 0x00, 0x00, node_addr };
 #include "local_lorawan.h"
 #endif
 
+#if defined LORAWAN && defined NATIVE_LORAWAN
+#ifdef WITH_AT_COMMANDS
+#include "native_at_lorawan.h"
+#endif
+#endif
+
 // SENSORS DEFINITION 
 //////////////////////////////////////////////////////////////////
 // NORMALLY YOU DO NOT NEED TO CHANGE THIS SECTION
-#if defined WAZISENSE || defined WAZIDEV14
-  #ifdef SI7021_SENSOR
-    SI7021 si7021;
-    bool foundSI7021=false;
-    uint8_t si7021_temp_index;
-    uint8_t si7021_hum_index;
-    #if defined SOLAR_PANEL_LEVEL || defined WAZIDEV_BAT_VOLTAGE
-      //soil sensor(s) + SI7021 temp/hum + solar|battery level
-      #ifdef SOIL_TEMP_SENSOR
-        const int number_of_sensors = 5;
-      #else
-        const int number_of_sensors = 4;
-      #endif
-    #else
-       //soil sensor(s) + SI7021 temp/hum
-      #ifdef SOIL_TEMP_SENSOR
-        const int number_of_sensors = 4;
-      #else
-        const int number_of_sensors = 3;
-      #endif
-    #endif
-  #else
-    #if defined SOLAR_PANEL_LEVEL || defined WAZIDEV_BAT_VOLTAGE
-      //soil sensor(s) + solar|battery level
-      #ifdef SOIL_TEMP_SENSOR
-        const int number_of_sensors = 3;
-      #else
-        const int number_of_sensors = 2;
-      #endif
-    #else
-       //soil sensor(s)
-      #ifdef SOIL_TEMP_SENSOR
-        const int number_of_sensors = 2;
-      #else
-        const int number_of_sensors = 1;
-      #endif
-    #endif  
-  #endif
+
+#ifdef SI7021_SENSOR
+SI7021 si7021;
+bool foundSI7021=false;
+uint8_t si7021_temp_index;
+uint8_t si7021_hum_index;
+//capacitive|watermark; 2nd watermark; soil temperature; SI7021 temp+hum; 
+const int max_number_of_sensors = 5;
 #else
-  //soil sensor(s) on regular ProMini PCB version
-  #ifdef TWO_WATERMARK
-    #ifdef SOIL_TEMP_SENSOR
-      const int number_of_sensors = 3;
-    #else
-      const int number_of_sensors = 2;
-    #endif
-  #else
-    #ifdef SOIL_TEMP_SENSOR
-      const int number_of_sensors = 2;
-    #else
-      const int number_of_sensors = 1;
-    #endif
-  #endif    
+#ifdef IRD_PCB
+// capacitive or watermark; 2nd watermark; soil temperature; EC5 decagon; CO2 sensor 
+const int max_number_of_sensors = 5;
+#else
+// capacitive or watermark; 2nd watermark; soil temperature; 
+const int max_number_of_sensors = 3;
 #endif
+#endif
+
+uint8_t number_of_sensors=max_number_of_sensors;
 
 uint8_t capacitive_sensor_index;
 uint8_t wm1_sensor_index;
 uint8_t wm2_sensor_index;
 uint8_t soil_temp_sensor_index;
+#define SOIL_TEMP_UNDEFINED_VALUE -99.0
+double soil_temp_sensor_value=SOIL_TEMP_UNDEFINED_VALUE;
+
 //////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////
 // IF YOU SEND A LONG STRING, INCREASE THE SIZE OF MESSAGE
-uint8_t message[80];
+#define MLENGTH 100
+uint8_t message[MLENGTH];
 ///////////////////////////////////////////////////////////////////
 
 //create a library class instance called LT
@@ -531,43 +531,104 @@ uint32_t TXPacketCount=0;
 #define FORCE_DEFAULT_VALUE
 ///////////////////////////////////////////////////////////////////
 
+///////////////////////////////////////////////////////////////////
+// LOW VOLTAGE MODE
+//
+// low voltage mode is applied when the battary voltage falls below VCC_LOW
+// once detected, the device will keep MAX_LOW_VOLTAGE_INDICATION=3 normal operation cycle
+// then, it will increase the measure & transmission time interval to LOW_VOLTAGE_IDLE_PERIOD_HOUR=4 hours
+// the mechanism prevents the ATMega328P microcontroller to reboot constantly
+// the battery voltage is transmitted to the gateway and appears on the dashboard so that
+// end-user can be warned of low voltage on the deployed device
+
 #ifdef MONITOR_BAT_VOLTAGE
 // https://github.com/Yveaux/arduino_vcc
 #include <Vcc.h>                     
-//Set to 1.0 for calibrate, be sure to transmit when not powered by USB  
+//Set to 1.0 for calibrate, be sure to transmit when not powered by USB      
 //then get reported Vcc for specific hardware    
 //const float VccCorrection = 3.3/3.3;
 //finally set VccCorrection to measured Vcc by multimeter divided by reported Vcc
 //Measure on real INTEL-IRRIS soil devices
-//const float VccCorrection = 3.0/2.9;
+//const float VccCorrection = 3.0/2.9;   
 //For WaziAct 
-const float VccCorrection = 3.875/3.03; //and 3,7V LIPO
+//const float VccCorrection = 3.875/3.03; //and 3,7V LIPO
 //const float VccCorrection = 6.43/4.61; //and 4x AA battery A1
 //const float VccCorrection = 6.48/5.07; //and 4x AA battery B1
 //const float VccCorrection = 5.18/3.34; //and 4x AA battery B1
+//For WaziSense
+//const float VccCorrection = 1.0; //calibration variable
+const float VccCorrection = 3.896/3.26; //and 3,6V LI-ION
 //other measures on real INTEL-IRRIS soil devices
 //const float VccCorrection = 3.64/3.54; //with 3.6 lithium battery
 //const float VccCorrection = 3.24/3.18; //with 2 AA alkaline batteries  
 Vcc vcc(VccCorrection);
 
-//to test low bat 
+//to manually test low bat
+//DOES support reboot but DOES NOT HAVE normal operation mode 
 //#define VCC_LOW               3.6 
+
+//to configure for test low bat
+//in test mode, idlePeriodInMin is set to 1min, so transmission time interval in low voltage mode
+//will be increased to 4mins so that debugging will not take to long
+//#define TEST_LOW_BAT
+
+//how many times we keep normal measure & transmission in low voltage mode
+#define MAX_LOW_VOLTAGE_INDICATION 3
+
+//the new measure & transmission time interval for low voltage mode
+#define LOW_VOLTAGE_IDLE_PERIOD_HOUR 4
 
 #ifndef VCC_LOW
 #ifdef WITH_WATERMARK
-//we could set to 2.65 which is approximately the threshold for the board to reboot
-//#define VCC_LOW                 2.75
-//for 4x AA battery: alkaline 1V is considered empty 
-#define VCC_LOW                 3.6
+//the ATMega328P reboots at about 2.65 - 2.75
+#define VCC_LOW                 2.85
 #else
-//capacitive sensors can be impacted by low voltage, especially for very dry conditions
+//capacitive sensors can be impacted by low voltage, especially for very dry soil conditions
 #define VCC_LOW                 2.85
 #endif
 #endif
-
+uint8_t low_voltage_indication = 0;
 uint8_t low_bat_counter = 0;             
 float last_vcc = 0.0;
+float current_vcc = 0.0;
 #endif
+
+#include "TempInternal.h"
+
+// IRD PCB with solar panel
+//
+#if defined IRD_PCB && defined SOLAR_BAT
+#define PANEL_AUTO  0
+#define PANEL_ON    1
+
+#ifdef NIMH
+#define BATT_GOOD         4350   // 4.35 V = 3x1.45 NiMH. (4.2 enough ?)
+#define BATT_TEMP_MINI    -150   // no freeze protection needed for NiMH 
+#define BATT_HYST          100   // start charge if pv >= v_bat + 0.1 V
+#define BAT_OK            4050   // 4.05 V = 3x1.35 V
+#define BAT_LOW           3600   // 3.6 V   0% NiMH en decharge sans charge solaire
+#else // Lithium
+#define BATT_GOOD         4050   // 4.05 V lithium 80%
+#define BATT_TEMP_MINI       5   // do not charge lipo when freeze
+#define BATT_HYST          100   // start charge if pv >= v_bat + 0.1 V
+#define BAT_OK            3600   // 3.6 V
+#define BAT_LOW           3400   // 3.4 V   0% lithium
+#define BAT_FULL          4200   // 4.2 V 100% lithium
+#endif
+#define BAT_MINIMUM       3000   // 3.0 V pendant la radio
+
+//#define TIME_C3             10  // wait 10 ms C3  33 nF
+#define TIME_C3              1  // wait  1 ms for C3 330 pF
+// to debug : replacing the PV by a lab power supply with a resistor in serial (capacitor inside)
+
+#define STATE_MOSFETS_OFF 0
+#define STATE_MOSFETS_ON  1
+
+uint16_t v_pv = 0;
+uint16_t v_bat = 0;
+uint16_t last_v_bat = 0;
+uint16_t recovery_charging = 0;
+#endif // SOLAR_BAT
 
 /*****************************
  _____           _      
@@ -615,18 +676,18 @@ float last_vcc = 0.0;
 // this is for the Teensy36, Teensy35, Teensy31/32 & TeensyLC
 // need v6 of Snooze library
 #if defined __MK20DX256__ || defined __MKL26Z64__ || defined __MK64FX512__ || defined __MK66FX1M0__
-  #define LOW_POWER_PERIOD 20
+  #define LOW_POWER_PERIOD 60
   #include <Snooze.h>
   SnoozeTimer timer;
   SnoozeBlock sleep_config(timer);
 #elif defined ARDUINO_ESP8266_ESP01 || defined ARDUINO_ESP8266_NODEMCU || defined ESP8266
-  #define LOW_POWER_PERIOD 20
+  #define LOW_POWER_PERIOD 60
   //we will use the deepSleep feature, so no additional library
 #elif defined ARDUINO_ARCH_ASR650X
-  #define LOW_POWER_PERIOD 20
+  #define LOW_POWER_PERIOD 60
   static TimerEvent_t wakeUp;
 #else // for all other boards based on ATMega168, ATMega328P, ATMega32U4, ATMega2560, ATMega256RFR2, ATSAMD21G18A
-  #define LOW_POWER_PERIOD 20 //was 8
+  #define LOW_POWER_PERIOD 8
   // you need the LowPower library from RocketScream
   // https://github.com/rocketscream/Low-Power
   #include "LowPower.h"
@@ -651,42 +712,24 @@ U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ 15, /* data=*/ 4, /* reset=*/
 //U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ 5, /* data=*/ 4, /* reset=*/ U8X8_PIN_NONE);
 U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ 12, /* data=*/ 14, /* reset=*/ U8X8_PIN_NONE);
 #else
-#ifdef OLED_GND234
+#ifdef OLED_GND235
   #ifdef OLED_PWR_PIN
     #undef OLED_PWR_PIN
     #define OLED_PWR_PIN 2
   #endif
-  U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ 3, /* data=*/ 4, /* reset=*/ U8X8_PIN_NONE);
+  U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ 3, /* data=*/ 5, /* reset=*/ U8X8_PIN_NONE);
 #elif defined OLED_9GND876
   #ifdef OLED_PWR_PIN
     #undef OLED_PWR_PIN
     #define OLED_PWR_PIN 8
   #endif  
   U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ 7, /* data=*/ 6, /* reset=*/ U8X8_PIN_NONE);
-#elif defined OLED_7GND654
-  #ifdef OLED_PWR_PIN
-    #undef OLED_PWR_PIN
-    #define OLED_PWR_PIN 6
-  #endif  
-  U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ 5, /* data=*/ 4, /* reset=*/ U8X8_PIN_NONE);  
-#elif defined OLED_GND13_12_11
-  #ifdef OLED_PWR_PIN
-    #undef OLED_PWR_PIN
-    #define OLED_PWR_PIN 13
-  #endif  
-  U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ 12, /* data=*/ 11, /* reset=*/ U8X8_PIN_NONE); 
-#elif defined OLED_GND579
+#elif defined OLED_GND5A5A4
   #ifdef OLED_PWR_PIN
     #undef OLED_PWR_PIN
     #define OLED_PWR_PIN 5
   #endif  
-  U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ 7, /* data=*/ 9, /* reset=*/ U8X8_PIN_NONE); 
-#elif defined OLED_A3GNDA2_A1_A0
-  #ifdef OLED_PWR_PIN
-    #undef OLED_PWR_PIN
-    #define OLED_PWR_PIN A2
-  #endif  
-  U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ A1, /* data=*/ A0, /* reset=*/ U8X8_PIN_NONE); 
+  U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ A5, /* data=*/ A4, /* reset=*/ U8X8_PIN_NONE);      
 #else
   U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ A5, /* data=*/ A4, /* reset=*/ U8X8_PIN_NONE);
 #endif
@@ -697,21 +740,24 @@ char oled_msg[20];
 unsigned long nextTransmissionTime=0L;
 
 // array containing sensors pointers
-Sensor* sensor_ptrs[number_of_sensors];
+Sensor* sensor_ptrs[max_number_of_sensors];
 
 #ifdef WITH_EEPROM
-struct sx1272config {
+struct nodeConfig {
 
   uint8_t flag1;
   uint8_t flag2;
   uint8_t seq;
+#ifndef LORAWAN  
   uint8_t addr;
-  unsigned int idle_period;  
+#endif  
+  unsigned int idle_period;
+  uint8_t low_voltage_indication;  
   uint8_t overwrite;
   // can add other fields such as LoRa mode,...
 };
 
-sx1272config my_sx1272config;
+nodeConfig my_nodeConfig;
 #endif
 
 #ifdef WITH_RCVW
@@ -844,6 +890,10 @@ void lowPower(unsigned long time_ms) {
 #endif
         waiting_t = 0;
       }
+
+#if defined IRD_PCB && defined SOLAR_BAT
+  manage_battery(PANEL_AUTO);
+#endif
   
 #ifdef SHOW_LOW_POWER_CYCLE
       FLUSHOUTPUT;
@@ -898,7 +948,15 @@ void lowPower(unsigned long time_ms) {
 ******************************/
 
 void setup() {
-  
+
+#if defined IRD_PCB && defined SOLAR_BAT
+  manage_battery(PANEL_AUTO);
+  if (v_bat < BAT_LOW)
+  {
+    recovery_charging = 1;
+  }
+#endif
+
 #ifdef LOW_POWER
   bool low_power_status = IS_LOWPOWER;  
 #ifdef __SAMD21G18A__
@@ -907,6 +965,30 @@ void setup() {
 #else
   bool low_power_status = IS_NOT_LOWPOWER;
   //digitalWrite(PIN_POWER,HIGH);
+#endif
+
+#ifdef WAZISENSE
+#define WAZISENSE_BUILTIN_LED1 8
+#define WAZISENSE_MOSFET1 6
+#define WAZISENSE_MOSFET2 7
+
+  pinMode(WAZISENSE_BUILTIN_LED1, OUTPUT);
+  digitalWrite(WAZISENSE_BUILTIN_LED1, HIGH);
+  delay(200);
+  digitalWrite(WAZISENSE_BUILTIN_LED1, LOW);
+  delay(200);
+  digitalWrite(WAZISENSE_BUILTIN_LED1, HIGH);
+  delay(200);
+  digitalWrite(WAZISENSE_BUILTIN_LED1, LOW);    
+  
+  pinMode(WAZISENSE_MOSFET1, OUTPUT);
+  pinMode(WAZISENSE_MOSFET2, OUTPUT);
+  digitalWrite(WAZISENSE_MOSFET1, LOW);
+  digitalWrite(WAZISENSE_MOSFET2, LOW);
+#endif
+
+#ifdef WITH_AT_COMMANDS
+  pinMode(BOARD_BUILTIN_LED, OUTPUT);
 #endif
   
   delay(1000);
@@ -917,6 +999,10 @@ void setup() {
   Serial.begin(38400);  
 #endif
 
+#if defined IRD_PCB && defined SOLAR_BAT
+  manage_battery(PANEL_AUTO);
+#endif
+
 #ifdef OLED_PWR_PIN
   pinMode(OLED_PWR_PIN, OUTPUT);
   digitalWrite(OLED_PWR_PIN, HIGH);
@@ -924,14 +1010,6 @@ void setup() {
   //use pin 9 as ground
   pinMode(9, OUTPUT);
   digitalWrite(9, LOW);
-#elif defined OLED_7GND654
-  //use pin 7 as ground
-  pinMode(7, OUTPUT);
-  digitalWrite(7, LOW);
-#elif defined OLED_A3GNDA2_A1_A0
-  //use pin A3 as ground
-  pinMode(A3, OUTPUT);
-  analogWrite(A3, LOW);  
 #endif
 #endif
 
@@ -954,29 +1032,35 @@ void setup() {
   sensor_index++;
 #endif
 #else
-  sensor_ptrs[sensor_index] = new rawAnalog("SH1", IS_ANALOG, IS_CONNECTED, low_power_status, (uint8_t) SH1_ANALOG_PIN, (uint8_t) SH1_PWR_PIN /*no pin trigger*/);
+  sensor_ptrs[sensor_index] = new sen0308("SH1", IS_ANALOG, IS_CONNECTED, low_power_status, (uint8_t) SH1_ANALOG_PIN, (uint8_t) SH1_PWR_PIN /*no pin trigger*/);
   sensor_ptrs[sensor_index]->set_n_sample(NSAMPLE);
   sensor_ptrs[sensor_index]->set_warmup_time(200);
   capacitive_sensor_index=sensor_index;
   sensor_index++;
+#endif
+#ifdef SOIL_EC5_SENSOR
+  // SH2 // IRD_PCB
+  sensor_ptrs[sensor_index] = new rawAnalog("SH2", IS_ANALOG, IS_CONNECTED, low_power_status, (uint8_t) SH2_ANALOG_PIN, (uint8_t) SH2_PWR_PIN /*no pin trigger*/);
+  sensor_ptrs[sensor_index]->set_n_sample(NSAMPLE);
+  sensor_ptrs[sensor_index]->set_warmup_time(200);
+  sensor_index++;
 #endif  
 #ifdef SOIL_TEMP_SENSOR
   //ST
-  sensor_ptrs[sensor_index] = new DS18B20((char*)"ST", IS_NOT_ANALOG, IS_CONNECTED, low_power_status, (uint8_t) TEMP_DIGITAL_PIN, (uint8_t) TEMP_PWR_PIN /*no pin trigger*/);
+  sensor_ptrs[sensor_index] = new DS18B20("ST", IS_NOT_ANALOG, IS_CONNECTED, low_power_status, (uint8_t) TEMP_DIGITAL_PIN, (uint8_t) TEMP_PWR_PIN /*no pin trigger*/);
   sensor_ptrs[sensor_index]->set_n_sample(NSAMPLE);
+#ifdef WAZISENSE  
+  //it is because the soil temp is attached to a mosfet sensor pin
+  sensor_ptrs[sensor_index]->set_warmup_time(1500);
+#endif      
   soil_temp_sensor_index=sensor_index;
   sensor_index++;
 #endif
-
-#if defined WAZISENSE && defined SOLAR_PANEL_LEVEL  
-  sensor_ptrs[sensor_index] = new rawAnalog("SPL", IS_ANALOG, IS_CONNECTED, IS_NOT_LOWPOWER, (uint8_t) A2, -1 /*no pin trigger*/);
-  sensor_ptrs[sensor_index]->set_n_sample(1);
-  sensor_index++;  
-#endif
-#if defined WAZIDEV14 && defined WAZIDEV_BAT_VOLTAGE
-  sensor_ptrs[sensor_index] = new rawAnalog("BAT", IS_ANALOG, IS_CONNECTED, IS_NOT_LOWPOWER, (uint8_t) A7, -1 /*no pin trigger*/);
-  sensor_ptrs[sensor_index]->set_n_sample(1);
-  sensor_index++;  
+#ifdef CO2_SCD30_SENSOR
+  //CO2  // IRD_PCB
+  sensor_ptrs[sensor_index] = new CO2_SCD30((char*)"CO2", IS_NOT_ANALOG, IS_CONNECTED, low_power_status, -1, (uint8_t) TEMP_PWR_PIN /*no pin trigger*/);
+  sensor_ptrs[sensor_index]->set_n_sample( 1);
+  sensor_index++;
 #endif
   
 #ifdef SI7021_SENSOR
@@ -993,7 +1077,9 @@ void setup() {
   si7021_hum_index=sensor_index;
   sensor_index++;
 #endif
- 
+
+  //we ajust to get the real number of sensors
+  number_of_sensors=sensor_index;
 ////////////////////////////////////////////////////////////////// 
   
 #ifdef OLED
@@ -1005,8 +1091,6 @@ void setup() {
   u8x8.drawString(0, 0, "PRIMA IntelIrriS");
 #ifdef WAZISENSE
   u8x8.drawString(0, 1, "with WaziSense  ");
-#elif defined WAZIDEV14  
-  u8x8.drawString(0, 1, "with WaziDev1.4 ");
 #else
   u8x8.drawString(0, 1, "with DIY IoT    ");
 #endif
@@ -1022,25 +1106,7 @@ void setup() {
   PRINT_CSTSTR(BOOT_START_MSG);
 
 #ifdef WAZISENSE
-  PRINT_CSTSTR("WaziSense board\n");
-#ifdef SOLAR_PANEL_LEVEL  
-  //for the solar panel monitoring circuit
-  pinMode(A2, INPUT);
-#endif    
-#endif
-
-#ifdef WAZIDEV14
-  PRINT_CSTSTR("WaziDev v1.4 board\n");
-  pinMode(7, OUTPUT);
-#ifdef WAZIDEV_BAT_VOLTAGE  
-  //for the bat level monitoring circuit
-  pinMode(A7, INPUT);
-  //need to put D7 low to activate the monitoring circuit
-  digitalWrite(7, LOW);
-#else
-  //keep D7 HIGH to de-activate the bat level monitoring circuit
-  digitalWrite(7, HIGH);  
-#endif    
+  PRINT_CSTSTR("WaziSense board\n");  
 #endif
 
 #ifdef ARDUINO_AVR_PRO
@@ -1099,8 +1165,10 @@ void setup() {
   PRINT_CSTSTR("SAM3X8E ARM Cortex-M3 detected\n");
 #endif
 
+#if defined WITH_SPI_COMMANDS
   //start SPI bus communication
   SPI.begin();
+#endif
   
   //setup hardware pins used by device, then check if device is found
 #ifdef SX126X
@@ -1114,6 +1182,10 @@ void setup() {
 #ifdef SX128X
   if (LT.begin(NSS, NRESET, RFBUSY, DIO1, DIO2, DIO3, RX_EN, TX_EN, LORA_DEVICE))
 #endif
+
+#if defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS 
+  if (lorawan_module_setup(LORAWAN_MODULE_BAUD_RATE))
+#endif  
   {
     PRINT_CSTSTR("LoRa Device found\n");                                  
     delay(500);
@@ -1121,9 +1193,11 @@ void setup() {
   else
   {
     PRINT_CSTSTR("No device responding\n");
-    while (1){ }
+    while (1)
+      ;
   }
 
+#if defined RAW_LORA && defined WITH_SPI_COMMANDS
 /*******************************************************************************************************
   Based from SX12XX example - Stuart Robinson 
 *******************************************************************************************************/
@@ -1231,47 +1305,66 @@ void setup() {
 /*******************************************************************************************************
   End from SX12XX example - Stuart Robinson 
 *******************************************************************************************************/
+#endif
 
 #ifdef WITH_EEPROM
 #if defined ARDUINO_ESP8266_ESP01 || defined ARDUINO_ESP8266_NODEMCU || defined ARDUINO_ARCH_ASR650X
   EEPROM.begin(512);
 #endif
   // get config from EEPROM
-  EEPROM.get(0, my_sx1272config);
+  EEPROM.get(0, my_nodeConfig);
 
   // found a valid config?
-  if (my_sx1272config.flag1==0x12 && my_sx1272config.flag2==0x35) {
+  if (my_nodeConfig.flag1==0x12 && my_nodeConfig.flag2==0x35) {
     PRINT_CSTSTR("Get back previous sx1272 config\n");
+#if defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS
+    // TODO with LoRaWAN frame counter
+    // Currently, RAK3172 cannot be set with an arbitrary frame counter
+    // it is set to 0 after a power up 
+#else     
     // set sequence number for SX1272 library
-    LT.setTXSeqNo(my_sx1272config.seq);
+    LT.setTXSeqNo(my_nodeConfig.seq);
     PRINT_CSTSTR("Using packet sequence number of ");
     PRINT_VALUE("%d", LT.readTXSeqNo());
-    PRINTLN;    
+    PRINTLN;
+#endif
+    //when low voltage is detected, the device will still measure and transmit to indicate the low voltage
+    //it will do so MAX_LOW_VOLTAGE_INDICATION times and this will be indicated in the low_voltage_indication
+    //variable saved in EEPROM
+    low_voltage_indication=my_nodeConfig.low_voltage_indication;     
 
 #ifdef FORCE_DEFAULT_VALUE
     PRINT_CSTSTR("Forced to use default parameters\n");
-    my_sx1272config.flag1=0x12;
-    my_sx1272config.flag2=0x35;   
-    my_sx1272config.seq=LT.readTXSeqNo(); 
-    my_sx1272config.addr=node_addr;
-    my_sx1272config.idle_period=idlePeriodInMin;    
-    my_sx1272config.overwrite=0;
-    EEPROM.put(0, my_sx1272config);
+    my_nodeConfig.flag1=0x12;
+    my_nodeConfig.flag2=0x35;
+#if defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS
+    my_nodeConfig.seq=0; 
+#else       
+    my_nodeConfig.seq=LT.readTXSeqNo(); 
+#endif
+#ifndef LORAWAN    
+    my_nodeConfig.addr=node_addr;
+#endif    
+    my_nodeConfig.idle_period=idlePeriodInMin;
+    my_nodeConfig.low_voltage_indication=low_voltage_indication;    
+    my_nodeConfig.overwrite=0;
+    EEPROM.put(0, my_nodeConfig);
 #else
+#ifndef LORAWAN
     // get back the node_addr
-    if (my_sx1272config.addr!=0 && my_sx1272config.overwrite==1) {
+    if (my_nodeConfig.addr!=0 && my_nodeConfig.overwrite==1) {
       
         PRINT_CSTSTR("Used stored address\n");
-        node_addr=my_sx1272config.addr;        
+        node_addr=my_nodeConfig.addr;        
     }
     else
         PRINT_CSTSTR("Stored node addr is null\n"); 
-
+#endif
     // get back the idle period
-    if (my_sx1272config.idle_period!=0 && my_sx1272config.overwrite==1) {
+    if (my_nodeConfig.idle_period!=0 && my_nodeConfig.overwrite==1) {
       
         PRINT_CSTSTR("Used stored idle period\n");
-        idlePeriodInMin=my_sx1272config.idle_period;        
+        idlePeriodInMin=my_nodeConfig.idle_period;        
     }
     else
         PRINT_CSTSTR("Stored idle period is null\n");                 
@@ -1279,10 +1372,13 @@ void setup() {
 
 #if defined WITH_AES && not defined EXTDEVADDR && not defined LORAWAN
     DevAddr[3] = (unsigned char)node_addr;
-#endif            
+#endif
+
+#ifndef LORAWAN
     PRINT_CSTSTR("Using node addr of ");
     PRINT_VALUE("%d", node_addr);
     PRINTLN;   
+#endif
 
     PRINT_CSTSTR("Using idle period of ");
     PRINT_VALUE("%d", idlePeriodInMin);
@@ -1290,23 +1386,34 @@ void setup() {
   }
   else {
     // otherwise, write config and start over
-    my_sx1272config.flag1=0x12;
-    my_sx1272config.flag2=0x35;  
-    my_sx1272config.seq=LT.readTXSeqNo(); 
-    my_sx1272config.addr=node_addr;
-    my_sx1272config.idle_period=idlePeriodInMin;
-    my_sx1272config.overwrite=0;
+    my_nodeConfig.flag1=0x12;
+    my_nodeConfig.flag2=0x35;
+#if defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS
+    my_nodeConfig.seq=0; 
+#else      
+    my_nodeConfig.seq=LT.readTXSeqNo();
+#endif    
+#ifndef LORAWAN     
+    my_nodeConfig.addr=node_addr;
+#endif    
+    my_nodeConfig.idle_period=idlePeriodInMin;
+    my_nodeConfig.low_voltage_indication=0;
+    my_nodeConfig.overwrite=0;
   }
 #endif
 
+#if defined RAW_LORA
   PRINT_CSTSTR("Setting Power: ");
   PRINT_VALUE("%d", MAX_DBM);
   PRINTLN;
+#endif  
 
+#ifndef LORAWAN
   LT.setDevAddr(node_addr);
   PRINT_CSTSTR("node addr: ");
   PRINT_VALUE("%d", node_addr);
   PRINTLN;
+#endif  
 
 #ifdef SX126X
   PRINT_CSTSTR("SX126X");
@@ -1316,21 +1423,165 @@ void setup() {
 #endif
 #ifdef SX128X
   PRINT_CSTSTR("SX128X");
-#endif 
+#endif
+#ifdef RAK3172
+  PRINT_CSTSTR("RAK3172");
+#endif
   
   // Print a success message
   PRINT_CSTSTR(" successfully configured\n");
 
 #ifdef MONITOR_BAT_VOLTAGE
-  // check batterie first time
-  last_vcc = vcc.Read_Volts();
-  PRINT_CSTSTR("Measured battery voltage is ");
-  PRINTLN_VALUE("%f", last_vcc); 
+
+#ifdef TEST_LOW_BAT
+  idlePeriodInMin=1;
 #endif
-  
-  //printf_begin();
-  //delay(500);
+
+  // check batterie first time
+  current_vcc = (double)((uint16_t)(vcc.Read_Volts()*100))/100.00;
+  //initialized last_vcc on boot
+  last_vcc = current_vcc;
+  PRINT_CSTSTR("Battery voltage on startup is ");
+  PRINTLN_VALUE("%f", current_vcc);
+
+  //TODO: 0.15 guard value has not been really tested
+  if (low_voltage_indication && current_vcc > VCC_LOW+0.15) {
+#ifdef WITH_EEPROM
+    // reset low_voltage_indication
+    low_voltage_indication=0;
+    my_nodeConfig.low_voltage_indication=0;
+    EEPROM.put(0, my_nodeConfig);
+#endif 
+  }
+   
+  PRINT_CSTSTR("low_voltage_indication=");
+  PRINTLN_VALUE("%d", low_voltage_indication);  
+#endif
+
+#if defined IRD_PCB && defined SOLAR_BAT
+  manage_battery(PANEL_AUTO);
+#endif
+
+#ifdef WITH_AES
+  local_lorawan_init();
+#endif  
 }
+
+#if defined IRD_PCB && defined SOLAR_BAT
+// read micro controler temperature
+#define TEMP_INTERNAL  
+#define SOLAR_PANEL_ANA   A7  // analog input
+#define SOLAR_PANEL_PIN   5   // mosfet command Q4
+
+//////////////////////////////////////////////////////////////
+//
+uint16_t solar_analogRead( void)
+{
+  uint16_t v;
+  
+  v = analogRead( SOLAR_PANEL_ANA);
+  v = (uint16_t) ((uint32_t) v * 3300 / 1023); // 10 bits
+  v = (uint16_t) ((uint32_t) v * 5300 / 1000); // R5 430k R4 100k /5.3 15.3 V maxi
+
+  return v;
+}
+
+void manage_battery( uint8_t force_on)
+{
+  static uint8_t v_state = STATE_MOSFETS_OFF;
+#ifdef TEMP_INTERNAL
+  int8_t tempInternal;
+  
+  tempInternal = GetTempInternal();
+#endif
+
+  switch( v_state)
+  {
+    case STATE_MOSFETS_OFF:
+    default:
+      v_pv = solar_analogRead();
+
+      // connect battery for measure : pannel can consume 0.5 mA at night
+      pinMode( SOLAR_PANEL_PIN, OUTPUT);
+      digitalWrite( SOLAR_PANEL_PIN, HIGH);      
+      delay( TIME_C3);  
+      v_bat = solar_analogRead();
+
+#ifdef TEMP_INTERNAL
+      if ((v_pv > (v_bat + BATT_HYST)  &&  v_bat < BATT_GOOD  &&  tempInternal > BATT_TEMP_MINI)  ||  force_on)
+#else
+      if ((v_pv > (v_bat + BATT_HYST)  &&  v_bat < BATT_GOOD)  ||  force_on)
+#endif
+      {
+        // sun or daylight OR radio
+        v_state = STATE_MOSFETS_ON;
+        break;
+      }
+
+      pinMode( SOLAR_PANEL_PIN, OUTPUT);
+      digitalWrite( SOLAR_PANEL_PIN, LOW);
+      break;
+
+    case STATE_MOSFETS_ON:
+      v_bat = solar_analogRead();
+      if (v_bat > BATT_GOOD  &&  !force_on)
+      {
+        // battery stop charge
+        pinMode( SOLAR_PANEL_PIN, OUTPUT);
+        digitalWrite( SOLAR_PANEL_PIN, LOW);
+        v_state = STATE_MOSFETS_OFF;
+        break;
+      }
+
+      // disconnect battery for solar measure
+      pinMode( SOLAR_PANEL_PIN, OUTPUT);
+      digitalWrite( SOLAR_PANEL_PIN, LOW);      
+      delay( TIME_C3);
+      v_pv = solar_analogRead();
+      if (v_pv <= v_bat)
+      {
+        // night
+        v_state = STATE_MOSFETS_OFF;
+        break;
+      }
+
+      pinMode( SOLAR_PANEL_PIN, OUTPUT);
+      digitalWrite( SOLAR_PANEL_PIN, HIGH);
+      break;
+  }
+
+#ifdef SHOW_LOW_POWER_CYCLE                   
+  PRINT_CSTSTR("PV=");
+  PRINT_VALUE("%d", v_pv);
+  PRINT_CSTSTR("bat=");
+  PRINT_VALUE("%d", v_bat);
+  PRINT_CSTSTR("r=");
+  PRINT_VALUE("%d", last_v_bat);
+#ifdef TEMP_INTERNAL
+  PRINT_CSTSTR("T=");
+  PRINT_VALUE("%d", tempInternal);
+#endif
+  PRINT_CSTSTR(" ");
+  PRINT_VALUE("%d", v_state);
+  PRINT_CSTSTR("\n");
+#endif
+}
+
+#ifndef NIMH
+// lipo cell battery level
+// return percent (can be more than 100% if voltage is too hi)
+//
+uint8_t bat_level( uint16_t vbat)
+{
+  if (vbat <= BAT_LOW)
+  {
+    return 0;
+  }
+
+  return (uint8_t) ((vbat - BAT_LOW) / ((BAT_FULL - BAT_LOW) / 100));
+}
+#endif
+#endif // SOLAR_BAT
 
 //////////////////////////////////////////////////////////////
 // called by loop
@@ -1340,28 +1591,11 @@ void measure_and_send( void)
   long startSend;
   long endSend;
   uint8_t app_key_offset=0;
-  int e;
-  float sensor_value;
 
 #if defined WITH_APPKEY && not defined LORAWAN
       app_key_offset = sizeof(my_appKey);
       // set the app key in the payload
       memcpy(message,my_appKey,app_key_offset);
-#endif
-
-#ifdef WAZISENSE
-      int A2value=analogRead(A2);
-      PRINT_CSTSTR("Solar panel is at level ");
-      PRINTLN_VALUE("%d", A2value);
-
-      pinMode(8, OUTPUT);
-      digitalWrite(8, HIGH);
-      delay(100);
-      digitalWrite(8, LOW);
-      delay(200);
-      digitalWrite(8, HIGH);
-      delay(100);
-      digitalWrite(8, LOW);
 #endif
 
 #ifdef OLED
@@ -1376,8 +1610,6 @@ void measure_and_send( void)
         u8x8.drawString(0, 0, "PRIMA IntelIrriS");
 #ifdef WAZISENSE
         u8x8.drawString(0, 1, "with WaziSense  ");
-#elif defined WAZIDEV14  
-        u8x8.drawString(0, 1, "with WaziDev1.4 ");
 #else
         u8x8.drawString(0, 1, "with DIY IoT    ");
 #endif
@@ -1415,6 +1647,11 @@ void measure_and_send( void)
         //there might be specific pre-init operations for some sensors
         sensor_ptrs[i]->pre_init();   
       }
+
+#if defined WITH_WATERMARK && defined SOIL_TEMP_SENSOR
+      // we get the soil temperature in advance so that we can use it later for the watermark
+      soil_temp_sensor_value=sensor_ptrs[soil_temp_sensor_index]->get_value();
+#endif
       
       // main loop for sensors, actually, you don't have to edit anything here
       // just add a predefined sensor if needed or provide a new sensor class instance for a handle a new physical sensor
@@ -1431,7 +1668,25 @@ void measure_and_send( void)
               }
 #else
               char float_str[10];
-              double tmp_value=sensor_ptrs[i]->get_value();
+              double tmp_value;
+              
+#if defined WITH_WATERMARK && defined SOIL_TEMP_SENSOR
+              if (strncmp(sensor_ptrs[i]->get_nomenclature(),"ST",2)==0)
+                //because we already got it previously, so we just avoid reading it again
+                tmp_value=soil_temp_sensor_value;                
+              else
+#endif          
+                //get the value from the sensor    
+                tmp_value=sensor_ptrs[i]->get_value();
+
+              //TEST
+              //tmp_value += 0.25;
+
+#if not defined WITH_WATERMARK && defined SEN0308_TRANSMIT_MILLIVOLT
+              if (strncmp(sensor_ptrs[i]->get_nomenclature(),"SH1",3)==0) {
+                tmp_value=(double)(((sen0308*)sensor_ptrs[i])->convert_to_millivolt(tmp_value, 1023));
+              }  
+#endif
                           
               ftoa(float_str, tmp_value, 2);
           
@@ -1445,15 +1700,25 @@ void measure_and_send( void)
 #ifdef WITH_WATERMARK
               //the first Watermark
               if (strncmp(sensor_ptrs[i]->get_nomenclature(),"WM1",3)==0) {
-                //taking 28°C as the default soil temperature
-                ftoa(float_str, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0), 2);
+#ifdef LINK_SOIL_TEMP_TO_CENTIBAR                
+                if (soil_temp_sensor_value!=SOIL_TEMP_UNDEFINED_VALUE)
+                  ftoa(float_str, sensor_ptrs[i]->convert_value(tmp_value, soil_temp_sensor_value, -1.0), 2);
+                else  
+#endif                
+                  //taking 28°C as the default soil temperature
+                  ftoa(float_str, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0), 2);
                 sprintf(final_str, "%s/CB1/%s", final_str, float_str);
               }  
 #ifdef TWO_WATERMARK
               //the second Watermark
               if (strncmp(sensor_ptrs[i]->get_nomenclature(),"WM2",3)==0) {
-                //taking 28°C as the default soil temperature
-                ftoa(float_str, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0), 2);
+#ifdef LINK_SOIL_TEMP_TO_CENTIBAR                
+                if (soil_temp_sensor_value!=SOIL_TEMP_UNDEFINED_VALUE)
+                  ftoa(float_str, sensor_ptrs[i]->convert_value(tmp_value, soil_temp_sensor_value, -1.0), 2);
+                else  
+#endif                
+                  //taking 28°C as the default soil temperature
+                  ftoa(float_str, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0), 2);                
                 sprintf(final_str, "%s/CB2/%s", final_str, float_str);
               }  
 #endif              
@@ -1461,7 +1726,7 @@ void measure_and_send( void)
 
 #if defined USE_XLPP || defined USE_LPP
               //TODO
-              //there is an issue with current XLPP so we use addTemperature() for all values
+              //there is an issue with current XLPP so we use addTemperature() for all values, except for voltage
 #ifdef TEST_DEVICE_RANDOM              
               randomSeed(analogRead(2));
 #ifdef WITH_WATERMARK
@@ -1481,30 +1746,38 @@ void measure_and_send( void)
               //the first Watermark
               if (strncmp(sensor_ptrs[i]->get_nomenclature(),"WM1",3)==0) {
                 //tmp_value=110.0; // for testing, i.e. 1100omhs
-                // here we convert to centibar, using a mean temperature of 28°C
-                //lpp.addTemperature(0, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0));
+#ifdef LINK_SOIL_TEMP_TO_CENTIBAR                
+                if (soil_temp_sensor_value!=SOIL_TEMP_UNDEFINED_VALUE)
+                  lpp.addTemperature(ch, sensor_ptrs[i]->convert_value(tmp_value, soil_temp_sensor_value, -1.0));
+                else
+#endif                  
+                  // here we convert to centibar, using a mean temperature of 28°C
+                  lpp.addTemperature(ch, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0));
                 ch++;
-                lpp.addDelay(0,1,0);
-                lpp.addBarometricPressure(0, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0));
                                  
                 //Note: for watermark, raw data is scaled by dividing by 10 because addAnalogInput() will not accept
                 //large values while resistance value for watermark can go well beyond 3000
                 //TODO when wazigate LPP decoding bug is fixed, we could use un-scaled value                                    
-                lpp.addTemperature(1, tmp_value);
+                lpp.addTemperature(ch, tmp_value);
                 ch++;
               }
 #ifdef TWO_WATERMARK
               //the second Watermark
               if (strncmp(sensor_ptrs[i]->get_nomenclature(),"WM2",3)==0) {
                 //tmp_value=110.0; // for testing, i.e. 1100omhs
-                // here we convert to centibar, using a mean temperature of 28°C
-                lpp.addTemperature(2, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0));
+#ifdef LINK_SOIL_TEMP_TO_CENTIBAR                
+                if (soil_temp_sensor_value!=SOIL_TEMP_UNDEFINED_VALUE)
+                  lpp.addTemperature(ch, sensor_ptrs[i]->convert_value(tmp_value, soil_temp_sensor_value, -1.0));
+                else
+#endif                
+                  // here we convert to centibar, using a mean temperature of 28°C
+                  lpp.addTemperature(ch, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0));
                 ch++;
                 
                 //Note: for watermark, raw data is scaled by dividing by 10 because addAnalogInput() will not accept
                 //large values while resistance value for watermark can go well beyond 3000
                 //TODO when wazigate LPP decoding bug is fixed, we could use un-scaled value                                    
-                lpp.addTemperature(3, tmp_value);
+                lpp.addTemperature(ch, tmp_value);
                 ch++;
               }
 #endif   
@@ -1513,26 +1786,17 @@ void measure_and_send( void)
               //the soil temperature sensor
               if (strncmp(sensor_ptrs[i]->get_nomenclature(),"ST",2)==0) {
                 //we always use channel 5 for soil temperature
-                if (tmp_value == 85 || tmp_value == -127){
-                  lpp.addTemperature(4, WM_REF_TEMPERATURE);
-                  PRINT_CSTSTR("corrected wrong messurement (85C or -127C) with: WM_REF_TEMPERATURE (28C) or last read value");
-                }
-                else {
-                  WM_REF_TEMPERATURE = tmp_value;
-                  lpp.addTemperature(4, tmp_value);
-                }
-#ifdef LINK_SOIL_TEMP_TO_CENTIBAR
-#ifdef WITH_WATERMARK
-                //TODO: the channel index is hardcoded
-                //lpp.addTemperature(5, sensor_ptrs[wm1_sensor_index]->convert_value(sensor_ptrs[wm1_sensor_index]->get_data(), tmp_value, -1.0));
-#endif
-#ifdef TWO_WATERMARK
-                //TODO: the channel index is hardcoded
-                lpp.addTemperature(6, sensor_ptrs[wm2_sensor_index]->convert_value(sensor_ptrs[wm2_sensor_index]->get_data(), tmp_value, -1.0));
-#endif                
-#endif
+                lpp.addTemperature(5, tmp_value);
               }
 #endif
+
+#ifdef CO2_SCD30_SENSOR
+              if (strncmp(sensor_ptrs[i]->get_nomenclature(),"CO2",3)==0) {
+                //we always use channel 8 for co2
+                lpp.addTemperature(8, tmp_value);
+              }
+#endif
+
 
 #else
 
@@ -1543,8 +1807,19 @@ void measure_and_send( void)
                 ch=5;
               }
 #endif
-              //tmp_value=250.0; // for testing              
-              lpp.addTemperature(7, tmp_value);    
+
+#ifdef CO2_SCD30_SENSOR
+              if (strncmp(sensor_ptrs[i]->get_nomenclature(),"CO2",3)==0) {
+                //we always use channel 8 for co2
+                lpp.addTemperature(8, tmp_value);
+              }
+#endif
+              //the soil capacitive sensor
+              //tmp_value=250.0; // for testing
+#if defined MONITOR_BAT_VOLTAGE && defined SEN0308_CALIBRATION_LOW_VOLTAGE
+              tmp_value=sensor_ptrs[i]->convert_value(tmp_value, (double)last_vcc, 0.0);
+#endif
+              lpp.addTemperature(ch, tmp_value);    
 #endif
 #endif
               
@@ -1563,20 +1838,35 @@ void measure_and_send( void)
           }
       }
 
+#if defined IRD_PCB && defined SOLAR_BAT
+      manage_battery( PANEL_AUTO);
+#endif
+
       for (int i=0; i<number_of_sensors; i++) {
         //there might be specific post-init operations for some sensors
         sensor_ptrs[i]->post_init();   
       }      
 
-#ifdef MONITOR_BAT_VOLTAGE
-      last_vcc = vcc.Read_Volts();
-
+#if defined IRD_PCB && defined SOLAR_BAT && defined TRANSMIT_VOLTAGE
 #if defined USE_XLPP || defined USE_LPP
+      lpp.addAnalogInput(6, (float) last_v_bat / 1000.0);
+#ifdef NIMH
+      //lpp.addAnalogInput(7, (float) v_bat / 1000.0);   // volt
+#else
+      //lpp.addAnalogInput(7, (float) v_bat / 1000.0);   // volt pour test
+      //lpp.addAnalogInput(7, (float) bat_level(v_bat)); // percent for lithium
+#endif
+#endif
+#endif
+
+#ifdef MONITOR_BAT_VOLTAGE
+#if defined USE_XLPP || defined USE_LPP
+//here we transmit last_vcc, measured from last transmission cycle
 #if defined TRANSMIT_VOLTAGE && defined ALWAYS_TRANSMIT_VOLTAGE      
-      lpp.addVoltage(8, last_vcc);
+        lpp.addVoltage(8, last_vcc);
 #elif defined TRANSMIT_VOLTAGE
       if (last_vcc < VCC_LOW) {
-        lpp.addVoltage(9, last_vcc);  
+        lpp.addVoltage(6, last_vcc);
       }
 #endif      
 #endif
@@ -1599,30 +1889,30 @@ void measure_and_send( void)
       PRINT_STR("%s",(char*)(message+app_key_offset));
       PRINTLN;
 
-#if defined USE_XLPP || defined USE_LPP
-      PRINT_CSTSTR("use LPP format for transmission to WaziGate");
-      PRINTLN;
-#else
       PRINT_CSTSTR("Real payload size is ");
-      PRINT_VALUE("%d", r_size);
-      PRINTLN;
+      PRINTLN_VALUE("%d", r_size);
 
+#if defined USE_XLPP || defined USE_LPP
+      PRINT_CSTSTR("use LPP format for transmission to gateway\n");
+#else
+#if defined RAW_LORA && defined WITH_SPI_COMMANDS
       LT.printASCIIPacket(message, r_size);
       PRINTLN;
 #endif      
+#endif      
       int pl=r_size+app_key_offset;
 
+#ifdef RAW_LORA
       uint8_t p_type=PKT_TYPE_DATA;
-      
 #if defined WITH_AES
       // indicate that payload is encrypted
       p_type = p_type | PKT_FLAG_DATA_ENCRYPTED;
 #endif
-
 #ifdef WITH_APPKEY
       // indicate that we have an appkey
       p_type = p_type | PKT_FLAG_DATA_WAPPKEY;
 #endif     
+#endif
 
 /**********************************  
   ___   _____ _____ 
@@ -1651,32 +1941,89 @@ void measure_and_send( void)
 #endif
 ///////////////////////////////////
 
+#if defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS
+      PRINT_CSTSTR("plain payload hex\n");
+#if defined USE_XLPP
+      dumpHEXtoStr(serial_buff, lpp.buf, lpp.len);
+#elif defined USE_LPP 
+      dumpHEXtoStr(serial_buff, lpp.getBuffer(), lpp.getSize());     
+#else
+      dumpHEXtoStr(serial_buff, (char*)message, r_size);
+#endif
+      PRINTLN_STR("%s", serial_buff);
+#endif
+
+#if defined IRD_PCB && defined SOLAR_BAT
+      manage_battery( PANEL_ON); // use solar to reduce battery current
+      last_v_bat = v_bat;        // reset minimum battery value
+#endif
+
       startSend=millis();
 
+#if defined RAW_LORA && defined WITH_SPI_COMMANDS
       //LT.CarrierSense();
+#endif      
       
-#ifdef WITH_ACK
+#if defined RAW_LORA && defined WITH_ACK
       p_type=PKT_TYPE_DATA | PKT_FLAG_ACK_REQ;
       PRINTLN_CSTSTR("%s","Will request an ACK");         
 #endif
 
-#ifdef LORAWAN
+#ifdef WAZISENSE
+      digitalWrite(WAZISENSE_BUILTIN_LED1, HIGH);
+      delay(50);
+      digitalWrite(WAZISENSE_BUILTIN_LED1, LOW);
+      delay(50);
+      digitalWrite(WAZISENSE_BUILTIN_LED1, HIGH);
+      delay(50);
+      digitalWrite(WAZISENSE_BUILTIN_LED1, LOW);
+#endif
+
+#ifdef CUSTOM_LORAWAN
       //will return packet length sent if OK, otherwise 0 if transmit error
       //we use raw format for LoRaWAN
 #if defined USE_XLPP
+#if defined IRD_PCB && defined SOLAR_BAT
+      if (LT.transmit(lpp.buf, pl, 10000, MAX_DBM, WAIT_TX, &solar_analogRead, &last_v_bat))
+#else
       if (LT.transmit(lpp.buf, pl, 10000, MAX_DBM, WAIT_TX))
+#endif      
 #elif defined USE_LPP 
+#if defined IRD_PCB && defined SOLAR_BAT
+      if (LT.transmit(lpp.getBuffer(), pl, 10000, MAX_DBM, WAIT_TX, &solar_analogRead, &last_v_bat))
+#else
       if (LT.transmit(lpp.getBuffer(), pl, 10000, MAX_DBM, WAIT_TX))
+#endif      
+#else
+#if defined IRD_PCB && defined SOLAR_BAT
+      if (LT.transmit(message, pl, 10000, MAX_DBM, WAIT_TX, &solar_analogRead, &last_v_bat))
 #else      
       if (LT.transmit(message, pl, 10000, MAX_DBM, WAIT_TX))
-#endif       
+#endif      
+#endif
+#elif defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS
+      if (lorawan_transmit(serial_buff))        
 #else
       //will return packet length sent if OK, otherwise 0 if transmit error
       if (LT.transmitAddressed(message, pl, p_type, DEFAULT_DEST_ADDR, node_addr, 10000, MAX_DBM, WAIT_TX))  
 #endif
       {
+#ifdef MONITOR_BAT_VOLTAGE
+        //not 100% reliable because the board can reboot right after transmission because of
+        //low voltage, so last_vcc = vcc.Read_Volts(); is not executed
+        last_vcc = (double)((uint16_t)(vcc.Read_Volts()*100))/100.0;     
+#endif                
         endSend = millis();                                                  
         TXPacketCount++;
+
+#ifdef WAZISENSE
+        delay(200);
+        digitalWrite(WAZISENSE_BUILTIN_LED1, HIGH);
+        delay(500);
+        digitalWrite(WAZISENSE_BUILTIN_LED1, LOW);
+#endif
+
+#if defined RAW_LORA && defined WITH_SPI_COMMANDS        
         uint16_t localCRC = LT.CRCCCITT(message, pl, 0xFFFF);
         PRINT_CSTSTR("CRC,");
         PRINT_HEX("%d", localCRC);      
@@ -1687,37 +2034,54 @@ void measure_and_send( void)
           PRINTLN_VALUE("%d", LT.readRXSource());
           PRINT_CSTSTR("SNR of transmitted pkt is ");
           PRINTLN_VALUE("%d", LT.readPacketSNRinACK());          
-        }          
+        }
+#endif
+#if defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS
+        //nothing particular right now
+#endif                  
       }
       else
       {
-        endSend=millis();       
+#ifdef MONITOR_BAT_VOLTAGE
+        //not 100% reliable because the board can reboot right after transmission because of
+        //low voltage, so last_vcc = vcc.Read_Volts(); is not executed
+        last_vcc = (double)((uint16_t)(vcc.Read_Volts()*100))/100.0;     
+#endif        
+        endSend=millis();
+        
+#ifdef WAZISENSE
+        //error
+        delay(200);
+        digitalWrite(WAZISENSE_BUILTIN_LED1, HIGH);
+        delay(200);
+        digitalWrite(WAZISENSE_BUILTIN_LED1, LOW);
+        delay(200);
+        digitalWrite(WAZISENSE_BUILTIN_LED1, HIGH);
+        delay(200);
+        digitalWrite(WAZISENSE_BUILTIN_LED1, LOW);
+        delay(200);
+        digitalWrite(WAZISENSE_BUILTIN_LED1, HIGH);
+        delay(200);
+        digitalWrite(WAZISENSE_BUILTIN_LED1, LOW);
+#endif
+
+#if defined RAW_LORA && defined WITH_SPI_COMMANDS               
         //if here there was an error transmitting packet
         uint16_t IRQStatus;
         IRQStatus = LT.readIrqStatus();
         PRINT_CSTSTR("SendError,");
         PRINT_CSTSTR(",IRQreg,");
         PRINT_HEX("%d", IRQStatus);
-        LT.printIrqStatus(); 
-      }
-          
-#ifdef WITH_EEPROM
-      // save packet number for next packet in case of reboot     
-      my_sx1272config.seq=LT.readTXSeqNo();
-      EEPROM.put(0, my_sx1272config);
+        LT.printIrqStatus();
 #endif
-      PRINTLN;
-      PRINT_CSTSTR("LoRa pkt size ");
-      PRINT_VALUE("%d", pl);
-      PRINTLN;
-      
-      PRINT_CSTSTR("LoRa pkt seq ");   
-      PRINT_VALUE("%d", LT.readTXSeqNo()-1);
-      PRINTLN;
-    
-      PRINT_CSTSTR("LoRa Sent in ");
-      PRINT_VALUE("%ld", endSend-startSend);
-      PRINTLN;
+#if defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS
+        //nothing particular right now   
+#endif      
+
+#if defined IRD_PCB && defined SOLAR_BAT
+      manage_battery( PANEL_ON); // last_v_bat is read in LT.transmit if modified in library
+#endif        
+      }
 
 ///////////////////////////////////////////////////////////////////
 // DOWNLINK BLOCK - EDIT ONLY NEW COMMAND SECTION
@@ -1725,7 +2089,10 @@ void measure_and_send( void)
 ///////////////////////////////////////////////////////////////////
 
 #ifdef WITH_RCVW
-      
+
+uint8_t RXPacketL=0;
+
+#ifndef NATIVE_LORAWAN 
 #ifdef LORAWAN 
       uint8_t rxw_max=2;
 #else
@@ -1738,21 +2105,18 @@ void measure_and_send( void)
       LT.invertIQ(true);
 #endif
       uint8_t rxw=1;
-      uint8_t RXPacketL;
-                              
+                   
       do {
           PRINT_CSTSTR("Wait for ");
-          PRINT_VALUE("%d", (endSend+rxw*DELAY_BEFORE_RCVW) - millis());
-          PRINTLN;
-    
+          PRINTLN_VALUE("%d", (endSend+rxw*DELAY_BEFORE_RCVW) - millis());
+          
+          PRINT_CSTSTR("Wait for incoming packet-RX");
+          PRINTLN_VALUE("%d", rxw);
+
           //target 1s which is RX1 for LoRaWAN in most regions
           //then target 1s more which is RX2 for LoRaWAN in most regions
           while (millis()-endSend < rxw*DELAY_BEFORE_RCVW)
             ;
-          
-          PRINT_CSTSTR("Wait for incoming packet-RX");
-          PRINT_VALUE("%d", rxw);
-          PRINTLN;
             
           // wait for incoming packets
           RXPacketL = LT.receive(message, sizeof(message), 850, WAIT_RX);
@@ -1763,13 +2127,15 @@ void measure_and_send( void)
           else
             // try RX2 only if we are in LoRaWAN mode and nothing has been received in RX1
             if (++rxw<=rxw_max) {
-#ifdef BAND868
+#ifdef EU868
               //change freq to 869.525 as we are targeting RX2 window
               PRINT_CSTSTR("Set downlink frequency to 869.525MHz\n");
               LT.setRfFrequency(869525000, Offset);
-#elif defined BAND900
-              //TODO?
-#elif defined BAND433
+#elif defined AU915
+              //change freq to 923.3 as we are targeting RX2 window
+              PRINT_CSTSTR("Set downlink frequency to 923.3MHz\n");
+              LT.setRfFrequency(923300000, Offset);
+#elif defined EU433
               //change freq to 434.665 as we are targeting RX2 window
               PRINT_CSTSTR("Set downlink frequency to 434.665MHz\n");
               LT.setRfFrequency(434655000, Offset);
@@ -1812,12 +2178,16 @@ void measure_and_send( void)
       PRINTLN_CSTSTR("I/Q back to normal");
       LT.invertIQ(false);
 #endif      
+
+#endif //#ifndef NATIVE_LORAWAN
+
       // we have received a downlink message
       //
       if (RXPacketL) {  
         int i=0;
         long cmdValue;
 
+#if defined RAW_LORA && defined WITH_SPI_COMMANDS
 #ifndef LORAWAN
         char print_buff[50];
 
@@ -1851,7 +2221,7 @@ void measure_and_send( void)
         //set the null character at the end of the payload in case it is a string
         message[RXPacketL-4]=(char)'\0';       
 #endif
-
+#endif
         PRINTLN;
         FLUSHOUTPUT;
        
@@ -1895,9 +2265,9 @@ void measure_and_send( void)
 
 #ifdef WITH_EEPROM
                       // save new node_addr in case of reboot
-                      my_sx1272config.addr=node_addr;
-                      my_sx1272config.overwrite=1;
-                      EEPROM.put(0, my_sx1272config);
+                      my_nodeConfig.addr=node_addr;
+                      my_nodeConfig.overwrite=1;
+                      EEPROM.put(0, my_nodeConfig);
 #endif
                       break;        
 #endif
@@ -1918,10 +2288,10 @@ void measure_and_send( void)
                       PRINTLN;         
 
 #ifdef WITH_EEPROM
-                      // save new node_addr in case of reboot
-                      my_sx1272config.idle_period=idlePeriodInMin;
-                      my_sx1272config.overwrite=1;
-                      EEPROM.put(0, my_sx1272config);
+                      // save new idle_period in case of reboot
+                      my_nodeConfig.idle_period=idlePeriodInMin;
+                      my_nodeConfig.overwrite=1;
+                      EEPROM.put(0, my_nodeConfig);
 #endif
 
                       break;  
@@ -1965,8 +2335,35 @@ void measure_and_send( void)
         }          
       }
       else
-        PRINT_CSTSTR("No downlink\n");
+        PRINT_CSTSTR("No downlink\n");        
 #endif         
+
+#ifdef WITH_EEPROM
+#if defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS
+      my_nodeConfig.seq=TXPacketCount;
+#else
+      // save packet number for next packet in case of reboot     
+      my_nodeConfig.seq=LT.readTXSeqNo();
+#endif      
+      EEPROM.put(0, my_nodeConfig);
+#endif
+      PRINTLN;
+      PRINT_CSTSTR("LoRa pkt size ");
+      PRINT_VALUE("%d", pl);
+      PRINTLN;
+
+#if defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS
+      PRINT_CSTSTR("LoRa pkt seq ");   
+      PRINT_VALUE("%d", TXPacketCount?0:TXPacketCount-1);
+      PRINTLN; 
+#else      
+      PRINT_CSTSTR("LoRa pkt seq ");   
+      PRINT_VALUE("%d", LT.readTXSeqNo()-1);
+      PRINTLN;
+#endif    
+      PRINT_CSTSTR("LoRa Sent in ");
+      PRINT_VALUE("%ld", endSend-startSend);
+      PRINTLN;
 }  
 
 /*****************************
@@ -1991,29 +2388,95 @@ void loop(void)
       //PRINTLN_VALUE("%ld",nextTransmissionTime);
       //PRINTLN_VALUE("%ld",(idlePeriodInSec==0)?(unsigned long)idlePeriodInMin*60*1000:(unsigned long)idlePeriodInSec*1000);
 
-#ifdef MONITOR_BAT_VOLTAGE
+#if defined IRD_PCB && defined SOLAR_BAT
+      if (recovery_charging  &&  v_bat > BAT_OK) {
+        recovery_charging = 0;
+      }
 
-      last_vcc = vcc.Read_Volts();
+      if (!recovery_charging  &&  v_bat > BAT_LOW  &&  (last_v_bat > BAT_MINIMUM  ||  last_v_bat == 0)) {
+        measure_and_send();
+      }
+      else {
+        PRINT_CSTSTR("!LOW BATTERY ");
+        PRINTLN_VALUE("%d", recovery_charging);
+      }
+#elif defined MONITOR_BAT_VOLTAGE        
+
+      current_vcc = (double)((uint16_t)(vcc.Read_Volts()*100))/100.0;
+
+      PRINT_CSTSTR("BATTERY-->");
+      PRINT_VALUE("%f", current_vcc);
+      PRINT_CSTSTR(" | ");
+      PRINTLN_VALUE("%f", last_vcc);      
 
 #ifdef BYPASS_LOW_BAT
       measure_and_send();
 #else      
-      if (last_vcc < VCC_LOW) {
-        PRINT_CSTSTR("!LOW BATTERY! ");
+      if (current_vcc < VCC_LOW || last_vcc < VCC_LOW) {
+        PRINT_CSTSTR("!LOW BATTERY-->");
+        PRINT_VALUE("%f", current_vcc);
+        PRINT_CSTSTR(" | ");
         PRINTLN_VALUE("%f", last_vcc);
+        
+        PRINT_CSTSTR("low_voltage_indication=");
+        PRINTLN_VALUE("%d", low_voltage_indication);
+    
+        if (low_voltage_indication < MAX_LOW_VOLTAGE_INDICATION) {
+          //we will still measure and transmit 3 times to warn end-user as soon as possible
+          //and overcome possible packet transmission losses
+          low_voltage_indication++;
+#ifdef WITH_EEPROM
+          // save new low_voltage_indication
+          my_nodeConfig.low_voltage_indication=low_voltage_indication;
+          EEPROM.put(0, my_nodeConfig);
+#endif          
+        }
+        else {
 
-        PRINTLN_CSTSTR("Double nextTransmissionTime");
-        //increase transmission time when low battery
-        nextTransmissionTime = nextTransmissionTime * 2;
-
-        low_bat_counter++;
+          if (low_bat_counter++==0) { 
+            //increase transmission time to 4 hours when low voltage, if it is smaller than 4 hours            
+            if (idlePeriodInMin < 240)
+              PRINTLN_CSTSTR("Set nextTransmissionTime to 4h");             
+#ifdef TEST_LOW_BAT
+              //for testing, we use idlePeriodInMin=1min so new transmission time interval is 4mins
+              //if the board reboots righ after transmission, then it will actually be 3mins
+              //as the initial idlePeriodInMin would be missing                          
+              nextTransmissionTime = millis() + (LOW_VOLTAGE_IDLE_PERIOD_HOUR - (unsigned long)idlePeriodInMin) * 60 * 1000;
+#else
+              //otherwise, it is increased to 4 hours
+              //if the board reboots righ after transmission, then it will actually be 3h
+              //as the initial idlePeriodInMin would be missing
+              nextTransmissionTime = millis() + (LOW_VOLTAGE_IDLE_PERIOD_HOUR * 60 - (unsigned long)idlePeriodInMin) * 60 * 1000;
+#endif
+            PRINT_CSTSTR("low_bat_counter=");
+            PRINTLN_VALUE("%d", low_bat_counter);   
+          }       
+        }
       }
 
-      if (last_vcc > VCC_LOW || low_bat_counter==3) {
-        if (low_bat_counter==3) {
+      if (last_vcc > VCC_LOW || low_bat_counter==2 || low_voltage_indication <= MAX_LOW_VOLTAGE_INDICATION) {
+        if (low_bat_counter==2) {
           PRINTLN_CSTSTR("Force measure and transmission");
           low_bat_counter=0;
-        }  
+        }
+
+        //disable low_voltage_indication
+        if (low_voltage_indication == MAX_LOW_VOLTAGE_INDICATION) {
+          low_voltage_indication = MAX_LOW_VOLTAGE_INDICATION+1;
+#ifdef WITH_EEPROM
+          // set new low_voltage_indication
+          my_nodeConfig.low_voltage_indication=low_voltage_indication;
+          EEPROM.put(0, my_nodeConfig);
+#endif          
+        }          
+        
+        if (low_voltage_indication && last_vcc > VCC_LOW) {
+#ifdef WITH_EEPROM
+          // reset low_voltage_indication
+          my_nodeConfig.low_voltage_indication=0;
+          EEPROM.put(0, my_nodeConfig);
+#endif                 
+        }
         measure_and_send();
       }
 #endif
@@ -2030,10 +2493,6 @@ void loop(void)
 #if defined LOW_POWER && not defined ARDUINO_SAM_DUE
       PRINT_CSTSTR("Switch to power saving mode\n");
 
-      //CONFIGURATION_RETENTION=RETAIN_DATA_RAM on SX128X
-      //parameter is ignored on SX127X
-      LT.setSleep(CONFIGURATION_RETENTION);
-
       //how much do we still have to wait, in millisec?
       unsigned long now_millis=millis();
 
@@ -2048,10 +2507,25 @@ void loop(void)
       //PRINTLN_VALUE("%ld",waiting_t);
       FLUSHOUTPUT;
 
+      // first power down the radio module
+#if defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS
+      // sleep until we wake the module with an AT command on the serial line
+      lorawan_sleep(0 /*waiting_t*/);
+#else
+      //CONFIGURATION_RETENTION=RETAIN_DATA_RAM on SX128X
+      //parameter is ignored on SX127X
+      LT.setSleep(CONFIGURATION_RETENTION);
+#endif
+
+      // then power down the microcontroller
       lowPower(waiting_t);
       
       PRINT_CSTSTR("Wake from power saving mode\n");
-      LT.wake();      
+#if defined NATIVE_LORAWAN && defined WITH_AT_COMMANDS
+      lorawan_wake();
+#else      
+      LT.wake(); 
+#endif           
 #else
       PRINTLN;
       PRINT_CSTSTR("Will send next value at\n");

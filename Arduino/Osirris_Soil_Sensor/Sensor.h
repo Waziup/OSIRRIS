@@ -3,7 +3,7 @@
 *
 * nicolas.bertuol@etud.univ-pau.fr
 * 
-* Modified by C. Pham, University of Pau, France
+* Modified and maintained by C. Pham, University of Pau, France
 */
 
 #ifndef SENSOR_H
@@ -40,7 +40,7 @@
 
 class Sensor {
   public:  
-    Sensor(char* nomenclature, bool is_analog, bool is_connected, bool is_low_power, int pin_read, int pin_power, int pin_trigger=-1);
+    Sensor(const char* nomenclature, bool is_analog, bool is_connected, bool is_low_power, int pin_read, int pin_power, int pin_trigger=-1);
     
     // getters
     //////////
@@ -77,6 +77,7 @@ class Sensor {
     virtual void update_data();
     virtual double get_value();
     virtual double convert_value(double v1, double v2, double v3);
+    //virtual uint16_t convert_to_millivolt(double value, uint16_t maxvalue);
     
   private:
   	char _nomenclature[MAX_NOMENCLATURE_LENGTH+1];
