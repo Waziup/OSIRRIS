@@ -48,7 +48,7 @@
 //#define BAND433
 
 ////////////////////////////////////////////////////////////////////
-#define BOOT_START_MSG  "\nINTEL-IRRIS soil humidity sensor – 20/08/2022\n"
+#define BOOT_START_MSG  "\nOsirris soil humidity sensor – 20/08/2022\n"
 
 ////////////////////////////////////////////////////////////////////
 // Test device
@@ -181,7 +181,7 @@ uint8_t node_addr=8;
 
 ///////////////////////////////////////////////////////////////////
 // CHANGE HERE THE TIME IN MINUTES BETWEEN 2 READING & TRANSMISSION
-unsigned int idlePeriodInMin = 10;
+unsigned int idlePeriodInMin = 30;
 unsigned int idlePeriodInSec = 0;
 ///////////////////////////////////////////////////////////////////
 
@@ -218,12 +218,12 @@ uint8_t my_appKey[4]={5, 6, 7, 8};
 //Watermark soil sensor device has a different address from the default address 26011DAA
 //26011DB1
 //if you need another address for tensiometer sensor device, use B1, B2, B3,..., BF
-unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xA1};
+unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xD2};
 #else
 //default device address for WaziGate configuration, mainly for SEN0308 capacitive soil sensor device
 //26011DAA
 //if you need another address for capacitive sensor device, use AA, AB, AC,..., AF
-unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xA1};
+unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xD2};
 #endif
 
 #else
@@ -269,19 +269,85 @@ unsigned char DevAddr[4] = { 0x00, 0x00, 0x00, node_addr };
                              |_|             
 ********************************************************************/
 
-//RESERVED PINS on Arduino ProMini: 10, 11, 12, 13, 4
+//RESERVED PINS on Arduino ProMini: 10, 11, 12, 13, 4 (for LoRa RST)
+
+//RESERVED PINS on WaziSense: 10, 11, 12, 13, 9 (for LoRa RST), 8 (LED1), 6 & 7 (power pins), A0 (bat level), 
+// WaziSense pinout
+// sensor power
+// | + - | + - | A2 A1 G | D4 D3 G | A5 A4 D5 G |
+// Capacitive wiring (x)
+// | + - | + - | A2 A1 G | D4 D3 G | A5 A4 D5 G |
+// |     |     | x  x  x |       x |            |
+//
+// 1 tensiometer wiring (x) + soil temp DS18B20 wiring (o)
+// | + - | + - | A2 A1 G | D4 D3 G | A5 A4 D5 G |
+// |     | o o |    x    |    x    |    x  o    |
+//
+// 1st tensiometer wiring (x) + 2nd tensiometer wiring (*) + soil temp DS18B20 wiring (o)
+// | + - | + - | A2 A1 G | D4 D3 G | A5 A4 D5 G |
+// |     | o o | *  x    | *  x    | *  x  o    |
+//
 
 #ifdef WAZISENSE
-//uncomment to transmit data related to solar panel level 
-//#define SOLAR_PANEL_LEVEL
-//soil temperature sensor
-#define TEMP_DIGITAL_PIN 5
-#define TEMP_PWR_PIN A1
-//first Watermark
-#define WM1_PWR_PIN1 6
-#define WM1_PWR_PIN2 9
-#define WM1_ANALOG_PIN A6
+  //this is how you need to connect the analog soil humidity sensors
+  #define SH1_ANALOG_PIN A2
+  #define SH1_PWR_PIN A1
+  //this is how you need to connect the DS18B20 soil temperature sensor
+  //the analog soil humidity sensor and the DS18B20 shares the same pwr line
+  #define TEMP_DIGITAL_PIN 5
+  #define TEMP_PWR_PIN 6 //one of the sensor power pin
+#elif defined IRD_PCB
+  //this is how you need to connect the analog soil humidity sensor
+  #define SH1_ANALOG_PIN A0
+  #define SH1_PWR_PIN A1
+  //this is how you need to connect the second analog soil humidity sensor
+  #define SH2_ANALOG_PIN A3
+  #define SH2_PWR_PIN A1  
+  //this is how you need to connect the DS18B20 soil temperature sensor
+  //the analog soil humidity sensor and the DS18B20 shares the same pwr line
+  #define TEMP_DIGITAL_PIN 6
+  #define TEMP_PWR_PIN A1
+#else
+  //this is how you need to connect the analog soil humidity sensor
+  #define SH1_ANALOG_PIN A0
+  #define SH1_PWR_PIN A1
+  //this is how you need to connect the DS18B20 soil temperature sensor
+  //the analog soil humidity sensor and the DS18B20 shares the same pwr line
+  #define TEMP_DIGITAL_PIN 7
+  #define TEMP_PWR_PIN A1
 #endif
+
+#ifdef WITH_WATERMARK
+#ifdef WAZISENSE
+  //first Watermark
+  #define WM1_PWR_PIN1 A4 //SDA
+  #define WM1_PWR_PIN2 3
+  #define WM1_ANALOG_PIN A1
+  //second Watermark
+  #define WM2_PWR_PIN1 A5 //SCL 
+  #define WM2_PWR_PIN2 4 
+  #define WM2_ANALOG_PIN A2
+#elif defined IRD_PCB
+  //first Watermark
+  #define WM1_PWR_PIN1 8
+  #define WM1_PWR_PIN2 9
+  #define WM1_ANALOG_PIN A2
+  //second Watermark
+  #define WM2_PWR_PIN1 7
+  #define WM2_PWR_PIN2 9
+  #define WM2_ANALOG_PIN A2
+#else
+  //first Watermark
+  #define WM1_PWR_PIN1 8
+  #define WM1_PWR_PIN2 9
+  #define WM1_ANALOG_PIN A2
+  //second Watermark
+  #define WM2_PWR_PIN1 5
+  #define WM2_PWR_PIN2 6
+  #define WM2_ANALOG_PIN A3
+#endif
+#endif
+
 
 
 /********************************************************************
@@ -475,10 +541,10 @@ uint32_t TXPacketCount=0;
 //Measure on real INTEL-IRRIS soil devices
 //const float VccCorrection = 3.0/2.9;
 //For WaziAct 
-//const float VccCorrection = 3.875/3.03; //and 3,7V LIPO
+const float VccCorrection = 3.875/3.03; //and 3,7V LIPO
 //const float VccCorrection = 6.43/4.61; //and 4x AA battery A1
 //const float VccCorrection = 6.48/5.07; //and 4x AA battery B1
-const float VccCorrection = 5.18/3.34; //and 4x AA battery B1
+//const float VccCorrection = 5.18/3.34; //and 4x AA battery B1
 //other measures on real INTEL-IRRIS soil devices
 //const float VccCorrection = 3.64/3.54; //with 3.6 lithium battery
 //const float VccCorrection = 3.24/3.18; //with 2 AA alkaline batteries  
@@ -1416,13 +1482,15 @@ void measure_and_send( void)
               if (strncmp(sensor_ptrs[i]->get_nomenclature(),"WM1",3)==0) {
                 //tmp_value=110.0; // for testing, i.e. 1100omhs
                 // here we convert to centibar, using a mean temperature of 28°C
-                lpp.addTemperature(ch, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0));
+                //lpp.addTemperature(0, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0));
                 ch++;
+                lpp.addDelay(0,1,0);
+                lpp.addBarometricPressure(0, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0));
                                  
                 //Note: for watermark, raw data is scaled by dividing by 10 because addAnalogInput() will not accept
                 //large values while resistance value for watermark can go well beyond 3000
                 //TODO when wazigate LPP decoding bug is fixed, we could use un-scaled value                                    
-                lpp.addTemperature(ch, tmp_value);
+                lpp.addTemperature(1, tmp_value);
                 ch++;
               }
 #ifdef TWO_WATERMARK
@@ -1430,13 +1498,13 @@ void measure_and_send( void)
               if (strncmp(sensor_ptrs[i]->get_nomenclature(),"WM2",3)==0) {
                 //tmp_value=110.0; // for testing, i.e. 1100omhs
                 // here we convert to centibar, using a mean temperature of 28°C
-                lpp.addTemperature(ch, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0));
+                lpp.addTemperature(2, sensor_ptrs[i]->convert_value(tmp_value, WM_REF_TEMPERATURE, -1.0));
                 ch++;
                 
                 //Note: for watermark, raw data is scaled by dividing by 10 because addAnalogInput() will not accept
                 //large values while resistance value for watermark can go well beyond 3000
                 //TODO when wazigate LPP decoding bug is fixed, we could use un-scaled value                                    
-                lpp.addTemperature(ch, tmp_value);
+                lpp.addTemperature(3, tmp_value);
                 ch++;
               }
 #endif   
@@ -1446,21 +1514,21 @@ void measure_and_send( void)
               if (strncmp(sensor_ptrs[i]->get_nomenclature(),"ST",2)==0) {
                 //we always use channel 5 for soil temperature
                 if (tmp_value == 85 || tmp_value == -127){
-                  lpp.addTemperature(5, WM_REF_TEMPERATURE);
+                  lpp.addTemperature(4, WM_REF_TEMPERATURE);
                   PRINT_CSTSTR("corrected wrong messurement (85C or -127C) with: WM_REF_TEMPERATURE (28C) or last read value");
                 }
                 else {
                   WM_REF_TEMPERATURE = tmp_value;
-                  lpp.addTemperature(5, tmp_value);
+                  lpp.addTemperature(4, tmp_value);
                 }
 #ifdef LINK_SOIL_TEMP_TO_CENTIBAR
 #ifdef WITH_WATERMARK
                 //TODO: the channel index is hardcoded
-                lpp.addTemperature(0, sensor_ptrs[wm1_sensor_index]->convert_value(sensor_ptrs[wm1_sensor_index]->get_data(), tmp_value, -1.0));
+                //lpp.addTemperature(5, sensor_ptrs[wm1_sensor_index]->convert_value(sensor_ptrs[wm1_sensor_index]->get_data(), tmp_value, -1.0));
 #endif
 #ifdef TWO_WATERMARK
                 //TODO: the channel index is hardcoded
-                lpp.addTemperature(2, sensor_ptrs[wm2_sensor_index]->convert_value(sensor_ptrs[wm2_sensor_index]->get_data(), tmp_value, -1.0));
+                lpp.addTemperature(6, sensor_ptrs[wm2_sensor_index]->convert_value(sensor_ptrs[wm2_sensor_index]->get_data(), tmp_value, -1.0));
 #endif                
 #endif
               }
@@ -1476,7 +1544,7 @@ void measure_and_send( void)
               }
 #endif
               //tmp_value=250.0; // for testing              
-              lpp.addTemperature(ch, tmp_value);    
+              lpp.addTemperature(7, tmp_value);    
 #endif
 #endif
               
@@ -1505,10 +1573,10 @@ void measure_and_send( void)
 
 #if defined USE_XLPP || defined USE_LPP
 #if defined TRANSMIT_VOLTAGE && defined ALWAYS_TRANSMIT_VOLTAGE      
-      lpp.addAnalogInput(6, last_vcc);
+      lpp.addVoltage(8, last_vcc);
 #elif defined TRANSMIT_VOLTAGE
       if (last_vcc < VCC_LOW) {
-        lpp.addAnalogInput(6, last_vcc);  
+        lpp.addVoltage(9, last_vcc);  
       }
 #endif      
 #endif
