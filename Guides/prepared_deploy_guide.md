@@ -92,3 +92,24 @@ For that purpose an application was developed to facilitate this procedure in an
 1. Open the Web-UI of your Gateway (IP-address or [http://wazigate.local](http://wazigate.local))
 2. In the side bar on top you will see the "sensor value forwarder" option. Click it to start the custom application.
 3. The application is just one page, you will have to provide some information to make it work. It is explained in the following:
+
+
+| Parameter                | Value                                                                                                   |
+|--------------------------|---------------------------------------------------------------------------------------------------------|
+| URL                      | http://urbane-middleware.northeurope.cloudapp.azure.com:8443/iotsensor/weather                          |
+| Username                 | urbane                                                                                                  |
+| Password                 | J^!Z]ON*MiF8LU1x>V0dK\|rs                                                                               |
+| Sensor ID                | You have to take the EUI from your weather station. ![DevEUI](./media/sensecap_back.png)                                  |
+| GPS location             | Open a maps and copy geo coordinates of the location of the weather station, e.g.: 51.023591, 13.744087 |
+| Temporal threshold       | 10                                                                                                      |
+| Attached Devices/Sensors | Select all sensors with "SenseCapS2120" in the name. To select multiple devices press [CTL]-key. ![devices/sensors](./media/sensors.png)       |
+
+
+4. If you provided all information, click on the green button in the bottom "Sync all future values". ![Sync all future values](./media/sync_future.png) A popup will confirm the synchronization.
+
+Now you are set and done. All future sensor values will be synced with the endpoint. If you open the app again, all given inputs will be deleted, but the app is still synchronizing sensor values.
+
+## Troubleshooting
+
+If you have any further questions/problems, please do not hesitate to contact us.
+You can reach out to us at contact@waziup.org. 

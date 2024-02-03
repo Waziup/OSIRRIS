@@ -28,7 +28,7 @@ The following hardware and software is required in order to follow this user gui
 - WaziSense Board
 - 868 Mhz Coil Antenna
 - Wires and jumpers
-- Irrometer Watermark Sensor SS200
+- Irrometer Watermark Sensor 200SS
 - DS18B20 temperature sensor 
 - 10 kOhm resistor, for the Watermark
 - 4.7 kOhm resistor, for the DS18B20
