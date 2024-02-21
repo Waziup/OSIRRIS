@@ -160,7 +160,7 @@ In the following all necessary steps to connect a WaziAct to a WaziGate are bein
 
 1. To flash the latest version of WaziGate ISO to a sd-card, you can just follow [this guide](https://waziup.io/documentation/wazigate/v2/install/). 
 2. Then access the WaziGate using the ip address of the device. 
-3. If you are using the WaziGate as an access point, connect your PC/Smartphone to a WIFI with the following SSID: "WAZIGATE_XXXXXXXXX", the address is "42.10.0.1". 
+3. If you are using the WaziGate as an access point, connect your PC/Smartphone to a WIFI with the following SSID: "WAZIGATE_XXXXXXXXX", the address is "http://10.42.0.1". 
 4. If you connected the WaziGate to an access point, connect your PC/Smartphone to the same access point, you can type the assigned ip address. If you have only one WaziGate connected you can access the UI by typing "wazigate.local". 
 5. After you logged in, you are on the dashboard page. 
 6. There you can press the "+" button (situated in the button right corner) and add a device. 

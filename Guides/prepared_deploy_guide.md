@@ -70,7 +70,7 @@ The Gateway has been prepared for you, so all essential settings like creating d
 
 1. Power the WaziGate with the delivered power supply and wait for 3min.
 2. Connect to a WIFI with the following SSID: "WAZIGATE_XXXXXXXXX" (X is arbitrary)
-3. Open the browser of your choice, type the address [http://42.10.0.1](http://42.10.0.1) as URL and hit enter.
+3. Open the browser of your choice, type the address [http://10.42.0.1](http://10.42.0.1) as URL and hit enter.
 4. The login screen of the WaziGate is shown. Use the following credentials:
     - Username: admin
     - Password: loragateway

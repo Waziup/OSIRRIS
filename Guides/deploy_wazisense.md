@@ -18,7 +18,7 @@ The WaziSense V2 can support different types of sensors and actuators. In the ir
 
 To deploy the WaziSense in the field you will need some tools, they are named here:
 
-- **DN75 PVC sewage pipe**: 1 m - 1.5 m
+- **DN75 PVC sewage pipe**: 1.5 m - 2 m
     - is used as pole and case to house the micro-controller, protective cover for cables
 - **Drill**: to drill in the PVC pipe
     - is not mandatory, but makes routing cables more convenient
