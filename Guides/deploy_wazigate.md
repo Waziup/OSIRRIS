@@ -4,6 +4,7 @@ The Wazigate is a LoRa Gateway. It is the connecting link between your sensor de
 
 The Gateway has been prepared for you, so all essential settings like creating devices and setting up the LoRa part has been done. The only thing that is left is to connect it to your local area network. For that purpose the WaziGate will create a Wifi-Hotspot, that you can connect with your smartphone, pc or tablet. 
 
+
 ### Connect a WaziGate to a local network:
 
 1. Power the WaziGate with the delivered power supply and wait for 3min.
