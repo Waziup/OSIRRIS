@@ -82,7 +82,7 @@ The Gateway has been prepared for you, so all essential settings like creating d
 
 This is it, we are ready! In the next step we will setup the waziup/sensor-value-forwarder application.
 
-## Setup the Sensor Value Forwarder Application for the WaziGate
+## Setup the Sensor Value Forwarder Application for the WaziGate (SenseCap S2120)
 
 Part of our project is to forward the captured sensor values of the weather station to our partners database.
 For that purpose an application was developed to facilitate this procedure in an easy manner.
@@ -90,26 +90,57 @@ For that purpose an application was developed to facilitate this procedure in an
 ### Steps:
 
 1. Open the Web-UI of your Gateway (IP-address or [http://wazigate.local](http://wazigate.local))
-2. In the side bar on top you will see the "sensor value forwarder" option. Click it to start the custom application.
-3. The application is just one page, you will have to provide some information to make it work. It is explained in the following:
+2. Install the latest application, the process is explained [here](https://github.com/Waziup/WaziGate-SenseCap-S2120-integration/blob/main/missing_link_guide.pdf).
+3. In Apps section click on the respective application and set restart policy to "Always"!
+4. In the side bar on top you will see the "sensor value forwarder" option. Click it to start the custom application.
+5. The application is just one page, you will have to provide some information to make it work. It is explained in the following:
 
 
 | Parameter                | Value                                                                                                   |
 |--------------------------|---------------------------------------------------------------------------------------------------------|
-| URL                      | http://urbane-middleware.northeurope.cloudapp.azure.com:8443/iotsensor/weather                          |
-| Username                 | urbane                                                                                                  |
-| Password                 | J^!Z]ON*MiF8LU1x>V0dK\|rs                                                                               |
-| Sensor ID                | You have to take the EUI from your weather station. ![DevEUI](./media/sensecap_back.png)                                  |
+| URL                      | https://urbanedss.cyric.io:8443/iotsensor/weather                                                       |
+| Username                 | wazziup                                                                                                 |
+| Password                 | hsKTRvfWDkGL!                                                                                           |
+| Sensor ID                | You have to take the EUI from your weather station. ![DevEUI](./media/sensecap_back.png)                |
 | GPS location             | Open a maps and copy geo coordinates of the location of the weather station, e.g.: 51.023591, 13.744087 |
 | Temporal threshold       | 10                                                                                                      |
 | Attached Devices/Sensors | Select all sensors with "SenseCapS2120" in the name. To select multiple devices press [CTL]-key. ![devices/sensors](./media/sensors.png)       |
 
+6. If you wish to also synchronize former sensor values, you can do so pressing the "Sync historical values" button.
+7. If you provided all information, click on the green button in the bottom "Sync all future values". ![Sync all future values](./media/sync_future.png) A popup will confirm the synchronization.
 
-4. If you provided all information, click on the green button in the bottom "Sync all future values". ![Sync all future values](./media/sync_future.png) A popup will confirm the synchronization.
+Now you are set and done. All future sensor values will be synced with the endpoint. If you open the app again, all given inputs will be deleted, but the app is still synchronizing sensor values.
+
+## Setup the Sensor Value Forwarder FLYTRAP Application for the WaziGate
+
+Part of our project is to forward the captured sensor values of the flytrap to our partners database.
+For that purpose an application was developed to facilitate this procedure in an easy manner.
+
+### Steps:
+
+1. Open the Web-UI of your Gateway (IP-address or [http://wazigate.local](http://wazigate.local))
+2. Install the latest application, the process is explained [here](https://github.com/Waziup/WaziGate-SenseCap-S2120-integration/blob/main/missing_link_guide.pdf).
+3. Now the decoder or forwarder has to be added, for that just press [F12] in browser and post the following [the contents of this file](https://github.com/Waziup/WaziGate-SenseCap-S2120-integration/blob/main/Flytrap_forward_decoder_deployment.js) to the console and hit enter.
+4. In Apps section click on the respective application and set restart policy to "Always"!
+5. In the side bar on top you will see the "sensor value forwarder flytrap" option. Click it to start the custom application.
+6. The application is just one page, you will have to provide some information to make it work. It is explained in the following:
+
+
+| Parameter                | Value                                                                                                   |
+|--------------------------|---------------------------------------------------------------------------------------------------------|
+| URL                      | https://urbanedss.cyric.io:8443/smart_trap/add                                                          |
+| Username                 | wazziup                                                                                                 |
+| Password                 | hsKTRvfWDkGL!                                                                                           |
+| Sensor ID                | This information can be obtained from the flytrap.                |
+| GPS location             | Open a maps and copy geo coordinates of the location of the flytrap, e.g.: 51.023591, 13.744087 |
+| Attached Devices/Sensors | Select the flytrap device. It has just one sensor.                         |
+
+7. If you wish to also synchronize former sensor values, you can do so pressing the "Sync historical values" button.
+8. If you provided all information, click on the green button in the bottom "Sync all future values". ![Sync all future values](./media/sync_future.png) A popup will confirm the synchronization.
 
 Now you are set and done. All future sensor values will be synced with the endpoint. If you open the app again, all given inputs will be deleted, but the app is still synchronizing sensor values.
 
 ## Troubleshooting
 
 If you have any further questions/problems, please do not hesitate to contact us.
-You can reach out to us at contact@waziup.org. 
+You can reach out to us at **felix.markwordt@waziup.org** or contact@waziup.org. 
