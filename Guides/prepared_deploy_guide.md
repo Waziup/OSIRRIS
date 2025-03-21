@@ -103,7 +103,7 @@ For that purpose an application was developed to facilitate this procedure in an
 | Password                 | hsKTRvfWDkGL!                                                                                           |
 | Sensor ID                | You have to take the EUI from your weather station. ![DevEUI](./media/sensecap_back.png)                |
 | GPS location             | Open a maps and copy geo coordinates of the location of the weather station, e.g.: 51.023591, 13.744087 |
-| Temporal threshold       | 10                                                                                                      |
+| Temporal threshold       | 20                                                                                                      |
 | Attached Devices/Sensors | Select all sensors with "SenseCapS2120" in the name. To select multiple devices press [CTL]-key. ![devices/sensors](./media/sensors.png)       |
 
 6. If you wish to also synchronize former sensor values, you can do so pressing the "Sync historical values" button.
