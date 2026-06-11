@@ -240,12 +240,12 @@ uint8_t my_appKey[4]={5, 6, 7, 8};
 //Watermark soil sensor device has a different address from the default address 26011DAA
 //26011DB1
 //if you need another address for tensiometer sensor device, use B1, B2, B3,..., BF
-unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xD1};
+unsigned char DevAddr[4] = {0x26, 0x01, 0x1B, 0xB1};
 #else
 //default device address for WaziGate configuration, mainly for SEN0308 capacitive soil sensor device
 //26011DAA
 //if you need another address for capacitive sensor device, use AA, AB, AC,..., AF
-unsigned char DevAddr[4] = {0x26, 0x01, 0x1D, 0xD1};
+unsigned char DevAddr[4] = {0x26, 0x01, 0x1B, 0xB1};
 #endif
 
 #else
@@ -1049,9 +1049,11 @@ void setup() {
   //ST
   sensor_ptrs[sensor_index] = new DS18B20("ST", IS_NOT_ANALOG, IS_CONNECTED, low_power_status, (uint8_t) TEMP_DIGITAL_PIN, (uint8_t) TEMP_PWR_PIN /*no pin trigger*/);
   sensor_ptrs[sensor_index]->set_n_sample(NSAMPLE);
+  // Increased startup time for DS18B20
+  sensor_ptrs[sensor_index]->set_warmup_time(3000);
 #ifdef WAZISENSE  
   //it is because the soil temp is attached to a mosfet sensor pin
-  sensor_ptrs[sensor_index]->set_warmup_time(1500);
+  sensor_ptrs[sensor_index]->set_warmup_time(3000);
 #endif      
   soil_temp_sensor_index=sensor_index;
   sensor_index++;
@@ -1651,6 +1653,11 @@ void measure_and_send( void)
 #if defined WITH_WATERMARK && defined SOIL_TEMP_SENSOR
       // we get the soil temperature in advance so that we can use it later for the watermark
       soil_temp_sensor_value=sensor_ptrs[soil_temp_sensor_index]->get_value();
+      if (soil_temp_sensor_value == -127.0 || soil_temp_sensor_value < -40 || soil_temp_sensor_value > 80)
+      {
+        PRINTLN_CSTSTR("Invalid soil temp, using default");
+        soil_temp_sensor_value = WM_REF_TEMPERATURE;
+      }
 #endif
       
       // main loop for sensors, actually, you don't have to edit anything here

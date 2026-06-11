@@ -33,10 +33,10 @@ Thats all, if you have those items, you will be able to deploy the devices.
 
 ## Preparation of Watermark 200SS
 
-It is just a brief overview, to obtain more in detail information, consult the [Watermark 200SS installation guide](https://www.irrometer.com/pdf/701.pdf) (you can also find this guide in the provided box).
+It is just a brief overview, to obtain more in detail information, consult the [Watermark 200SS installation guide.](https://www.irrometer.com/pdf/701.pdf)
 
 ### Sensor Hydration Before Installation (RECOMMENDED)
-1. Wet the sensor the 1st time by submerging less than halfway for 30 minutes in the morning.
+1. Wet the sensor the first time by submerging less than halfway for 30 minutes in the morning.
 
 2. Fully submerging the sensor will trap air inside it and will require drying the sensor completely and restarting this procedure. 
 
@@ -44,13 +44,13 @@ It is just a brief overview, to obtain more in detail information, consult the [
 
 4. Let it dry until the evening.
 
-5. Wet the sensor a 2nd time by submerging less than halfway for 30 minutes that same evening.
+5. Wet the sensor a second time by submerging less than halfway for 30 minutes that same evening.
 
 6. Let it dry overnight. 
 
-7. Wet the sensor a 3rd time by submerging less than halfway for 30 minutes the next morning and let dry until the evening. 
+7. Wet the sensor a third time by submerging less than halfway for 30 minutes the next morning and let dry until the evening. 
 
-8. Finally, fully submerge the sensor over the 2nd night and install soaking wet in the 3rd morning. 
+8. Finally, fully submerge the sensor over the 2nd night and install soaking wet in the third morning. 
 
 Full **sensor accuracy will be reached after 2 or more irrigation cycles**, depending on the soil’s wetness.
 
